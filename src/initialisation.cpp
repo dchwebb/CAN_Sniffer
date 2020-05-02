@@ -191,3 +191,55 @@ void InitEncoders() {
 	NVIC_EnableIRQ(EXTI15_10_IRQn);
 */
 }
+
+void InitCAN() {
+	/* p1083
+	In order to transmit a message, the application must select one empty transmit mailbox, set
+	up the identifier, the data length code (DLC) and the data before requesting the transmission
+	by setting the corresponding TXRQ bit in the CAN_TIxR register. Once the mailbox has left
+	empty state, the software no longer has write access to the mailbox registers. Immediately
+	after the TXRQ bit has been set, the mailbox enters pending state and waits to become the
+	highest priority mailbox, see Transmit Priority. As soon as the mailbox has the highest
+	priority it will be scheduled for transmission. The transmission of the message of the
+	scheduled mailbox will start (enter transmit state) when the CAN bus becomes idle. Once
+	the mailbox has been successfully transmitted, it will become empty again. The hardware
+	indicates a successful transmission by setting the RQCP and TXOK bits in the CAN_TSR
+	register.
+	 */
+	RCC->APB1ENR |= RCC_APB1ENR_CAN1EN;
+	/* Timing p1093
+	BaudRate = 1/NominalBitTime
+	NominalBitTime = tq + tBS1 + tBS2		// for 500kBaud = 0.000002‬s or 2us
+
+
+	tBS1 = tq x (TS1[3:0] + 1),
+	tBS2 = tq x (TS2[2:0] + 1),
+	tq = (BRP[9:0] + 1) x tPCLK
+
+	tPCLK = 1/AP1 Clock = 1/45MHz = 2.22 x 10^-8 = 22.22ns
+	*/
+	CAN1->BTR |= CAN_BTR_
+	CAN1->MCR &= ~CAN_MCR_INRQ;			// Clear this bit to switch the hardware into normal mode. Hardware signals ready by clearing the INAK bit in the CAN_MSR register.
+
+	// Send CAN Data
+	int TransmitId;
+	CAN1->sTxMailBox[0].TIR = (uint32_t)0;
+	CAN1->sTxMailBox[0].TIR |= TransmitId << CAN_TI0R_STID_Pos;		//  Standard identifier
+	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_IDE;			// Identifier extension: 0=Standard identifier; 1=Extended identifier
+	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_RTR;			// 1 RTR: Remote transmission request	0=Data frame; 1=Remote frame
+
+	CAN1->sTxMailBox[0].TDTR |= (8 & CAN_TDT0R_DLC);	// Data length code
+	CAN1->sTxMailBox[0].TDLR = 0;						// CAN mailbox data low register
+	CAN1->sTxMailBox[0].TDHR = 0;						// CAN mailbox data high register
+	CAN1->sTxMailBox[0].TIR |= CAN_TI0R_TXRQ;			// Set by software to request the transmission for the corresponding mailbox
+
+
+/*
+	CAN1->FMR |= 1 << 0;
+	CAN1->FMR |= 14 << 8;
+	CAN1->FS1R |=1 << 14;
+	CAN1->sFilterRegister[14].FR1 = 0x245 << 21;
+	CAN1->FM1R |= (uint32_t)(1 << 14);
+	CAN1->FA1R |= 1 << 14;
+*/
+}
