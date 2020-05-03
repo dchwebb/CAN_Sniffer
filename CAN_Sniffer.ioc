@@ -886,4 +886,3 @@ VP_SYS_VS_Systick.Mode=SysTick
 VP_SYS_VS_Systick.Signal=SYS_VS_Systick
 board=STM32F429I-DISC1
 boardIOC=true
-isbadioc=true

@@ -193,6 +193,54 @@ void InitEncoders() {
 }
 
 void InitCAN() {
+	RCC->APB1ENR |= RCC_APB1ENR_CAN1EN;
+
+	// CAN1_TX Pins (AF9): PD1 (also PB9, PA12)
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;			// reset and clock control - advanced high performance bus - GPIO port D
+	GPIOD->MODER |= GPIO_MODER_MODER1_1;			// Set alternate function
+	GPIOD->AFR[0] |= 9 << 4;						// Alternate function 9 is CAN1_TX
+	GPIOD->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR1_1;
+
+	// CAN_RX Pins (AF9): PA11, PB8, PD0
+	GPIOD->MODER |= GPIO_MODER_MODER0_1;			// Set alternate function
+	GPIOD->AFR[0] |= 9 << 0;						// Alternate function 9 is CAN1_RX
+
+	/* Timing p1093
+	BaudRate = 1/NominalBitTime
+	NominalBitTime = tq + tBS1 + tBS2				// for 500kBaud = 0.000002‬s or 2us
+
+
+	tBS1 = tq x (TS1[3:0] + 1),
+	tBS2 = tq x (TS2[2:0] + 1),
+	tq = (BRP[9:0] + 1) x tPCLK
+
+	tPCLK = 1/AP1 Clock = 1/45MHz = 2.22 x 10^-8 = 22.22ns
+	ie 90 AP1 clocks for per Bit Time; set tq = (9 + 1) * tPCLK gives 9 time quanta per bit
+	 tq + tBS1 + tBS2 = 1 + 4 + 4
+	*/
+
+	CAN1->MCR &= ~CAN_MCR_SLEEP;					// This bit is cleared by software to exit Sleep mode
+	CAN1->MCR |= CAN_MCR_INRQ;						// Request the CAN hardware enter initialization mode
+
+	while ((CAN1->MSR & CAN_MSR_INAK) != CAN_MSR_INAK);
+
+	CAN1->MCR &= ~CAN_MCR_DBF;						// 0: CAN working during debug	1: CAN reception/transmission frozen during debug
+	CAN1->BTR |= CAN_BTR_BRP_Msk & 9;				// Baud rate prescaler. These bits define the length of a time quanta.
+	CAN1->BTR &= ~CAN_BTR_TS1;
+	CAN1->BTR |= CAN_BTR_TS1 & (3 << 16);			// number of time quanta in Time Segment 1
+	CAN1->BTR &= ~CAN_BTR_TS2;
+	CAN1->BTR |= CAN_BTR_TS2 & (3 << 20);			// number of time quanta in Time Segment 2
+	CAN1->BTR |= CAN_BTR_LBKM;						// Loopback mode for testing
+
+	/* finish bxCAN setup */
+	CAN1->MCR |= CAN_MCR_ABOM;				//  Automatic bus-off management:  The Bus-Off state is left automatically by hardware once 128 occurrences of 11 recessive	bits have been monitored
+	CAN1->MCR |= CAN_MCR_TXFP | CAN_MCR_RFLM | CAN_MCR_AWUM; // automatic wakeup, tx round-robin mode
+
+
+	CAN1->MCR &= ~CAN_MCR_INRQ;						// Switch the hardware into normal mode. Hardware signals ready by clearing the INAK bit in the CAN_MSR register.
+}
+
+void SendCAN() {
 	/* p1083
 	In order to transmit a message, the application must select one empty transmit mailbox, set
 	up the identifier, the data length code (DLC) and the data before requesting the transmission
@@ -206,31 +254,17 @@ void InitCAN() {
 	indicates a successful transmission by setting the RQCP and TXOK bits in the CAN_TSR
 	register.
 	 */
-	RCC->APB1ENR |= RCC_APB1ENR_CAN1EN;
-	/* Timing p1093
-	BaudRate = 1/NominalBitTime
-	NominalBitTime = tq + tBS1 + tBS2		// for 500kBaud = 0.000002‬s or 2us
-
-
-	tBS1 = tq x (TS1[3:0] + 1),
-	tBS2 = tq x (TS2[2:0] + 1),
-	tq = (BRP[9:0] + 1) x tPCLK
-
-	tPCLK = 1/AP1 Clock = 1/45MHz = 2.22 x 10^-8 = 22.22ns
-	*/
-	CAN1->BTR |= CAN_BTR_
-	CAN1->MCR &= ~CAN_MCR_INRQ;			// Clear this bit to switch the hardware into normal mode. Hardware signals ready by clearing the INAK bit in the CAN_MSR register.
-
 	// Send CAN Data
-	int TransmitId;
+	int TransmitId = 0x4AB;
 	CAN1->sTxMailBox[0].TIR = (uint32_t)0;
 	CAN1->sTxMailBox[0].TIR |= TransmitId << CAN_TI0R_STID_Pos;		//  Standard identifier
 	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_IDE;			// Identifier extension: 0=Standard identifier; 1=Extended identifier
 	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_RTR;			// 1 RTR: Remote transmission request	0=Data frame; 1=Remote frame
 
+	CAN1->sTxMailBox[0].TDTR &= ~CAN_TDT0R_TGT;			// 0: Time stamp TIME[15:0] is not sent. 1: Time stamp TIME[15:0] value is sent in the last two data bytes of the 8-byte message
 	CAN1->sTxMailBox[0].TDTR |= (8 & CAN_TDT0R_DLC);	// Data length code
-	CAN1->sTxMailBox[0].TDLR = 0;						// CAN mailbox data low register
-	CAN1->sTxMailBox[0].TDHR = 0;						// CAN mailbox data high register
+	CAN1->sTxMailBox[0].TDLR = 0x1000FF00;				// CAN mailbox data low register
+	CAN1->sTxMailBox[0].TDHR = 0x452038F1;				// CAN mailbox data high register
 	CAN1->sTxMailBox[0].TIR |= CAN_TI0R_TXRQ;			// Set by software to request the transmission for the corresponding mailbox
 
 
@@ -242,4 +276,5 @@ void InitCAN() {
 	CAN1->FM1R |= (uint32_t)(1 << 14);
 	CAN1->FA1R |= 1 << 14;
 */
+
 }

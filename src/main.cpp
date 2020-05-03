@@ -23,9 +23,13 @@ int main(void) {
 //	InitSysTick();
 
 //	lcd.Init();								// Initialize ILI9341 LCD
+	InitCAN();
 
 	while (1) {
-
+		if ((CAN1->TSR & CAN_TSR_TME0) == CAN_TSR_TME0) {
+			SendCAN();
+		}
+		for (int t = 0; t < 10000; t++) {}
 
 	}
 }

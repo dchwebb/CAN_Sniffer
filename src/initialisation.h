@@ -92,3 +92,5 @@ void InitSysTick();
 void InitLCDHardware(void);
 void InitDebounceTimer();
 void InitEncoders();
+void InitCAN();
+void SendCAN();
