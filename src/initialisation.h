@@ -22,7 +22,7 @@
 //	Define encoder pins and timers for easier reconfiguring
 #ifdef STM32F446xx
 #define L_ENC_CNT	TIM4->CNT
-#elif STM32F42_43xxx
+#elif STM32F429xx
 #define L_ENC_CNT	TIM1->CNT
 #else
 #define L_ENC_CNT	TIM8->CNT
@@ -44,7 +44,7 @@
 
 #ifdef STM32F446xx
 #define R_BTN_NO(a, b) a ## 13 ## b
-#elif STM32F42_43xxx
+#elif STM32F429xx
 #define R_BTN_NO(a, b) a ## 7 ## b
 #else
 #define R_BTN_NO(a, b) a ## 2 ## b
@@ -57,7 +57,7 @@
 #endif
 
 // Define LCD DMA and SPI registers
-#ifdef STM32F42_43xxx
+#ifdef STM32F429xx
 #define LCD_DMA_STREAM			DMA2_Stream6
 #define LCD_SPI 				SPI5
 #define LCD_CLEAR_DMA_FLAGS		DMA2->HIFCR = DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTCIF6 | DMA_HIFCR_CTEIF6;
@@ -73,16 +73,11 @@
 #define LCD_RST_SET 	GPIOC->BSRR |= GPIO_BSRR_BS_14
 #define LCD_DCX_RESET	GPIOC->BSRR |= GPIO_BSRR_BR_13
 #define LCD_DCX_SET		GPIOC->BSRR |= GPIO_BSRR_BS_13
-#elif STM32F42_43xxx
-#define LCD_RST_RESET	GPIOD->BSRRH |= GPIO_BSRR_BS_12
-#define LCD_RST_SET 	GPIOD->BSRRL |= GPIO_BSRR_BS_12
-#define LCD_DCX_RESET	GPIOD->BSRRH |= GPIO_BSRR_BS_13
-#define LCD_DCX_SET		GPIOD->BSRRL |= GPIO_BSRR_BS_13
 #else
-#define LCD_RST_RESET	GPIOB->BSRR |= GPIO_BSRR_BR_0
-#define LCD_RST_SET 	GPIOB->BSRR |= GPIO_BSRR_BS_0
-#define LCD_DCX_RESET	GPIOC->BSRR |= GPIO_BSRR_BR_0
-#define LCD_DCX_SET		GPIOC->BSRR |= GPIO_BSRR_BS_0
+#define LCD_RST_RESET	GPIOD->BSRR |= GPIO_BSRR_BR_12
+#define LCD_RST_SET 	GPIOD->BSRR |= GPIO_BSRR_BS_12
+#define LCD_DCX_RESET	GPIOD->BSRR |= GPIO_BSRR_BR_13
+#define LCD_DCX_SET		GPIOD->BSRR |= GPIO_BSRR_BS_13
 #endif
 
 extern volatile uint32_t SysTickVal;
@@ -93,4 +88,4 @@ void InitLCDHardware(void);
 void InitDebounceTimer();
 void InitEncoders();
 void InitCAN();
-void SendCAN();
+void SendCAN(uint16_t canID, uint32_t lowData, uint32_t highData);

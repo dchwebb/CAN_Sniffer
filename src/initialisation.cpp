@@ -205,10 +205,14 @@ void InitCAN() {
 	GPIOD->MODER |= GPIO_MODER_MODER0_1;			// Set alternate function
 	GPIOD->AFR[0] |= 9 << 0;						// Alternate function 9 is CAN1_RX
 
+
+	CAN1->MCR &= ~CAN_MCR_SLEEP;					// This bit is cleared by software to exit Sleep mode
+	CAN1->MCR |= CAN_MCR_INRQ;						// Request the CAN hardware enter initialization mode
+	while ((CAN1->MSR & CAN_MSR_INAK) != CAN_MSR_INAK);
+
 	/* Timing p1093
 	BaudRate = 1/NominalBitTime
 	NominalBitTime = tq + tBS1 + tBS2				// for 500kBaud = 0.000002‬s or 2us
-
 
 	tBS1 = tq x (TS1[3:0] + 1),
 	tBS2 = tq x (TS2[2:0] + 1),
@@ -218,13 +222,6 @@ void InitCAN() {
 	ie 90 AP1 clocks for per Bit Time; set tq = (9 + 1) * tPCLK gives 9 time quanta per bit
 	 tq + tBS1 + tBS2 = 1 + 4 + 4
 	*/
-
-	CAN1->MCR &= ~CAN_MCR_SLEEP;					// This bit is cleared by software to exit Sleep mode
-	CAN1->MCR |= CAN_MCR_INRQ;						// Request the CAN hardware enter initialization mode
-
-	while ((CAN1->MSR & CAN_MSR_INAK) != CAN_MSR_INAK);
-
-	CAN1->MCR &= ~CAN_MCR_DBF;						// 0: CAN working during debug	1: CAN reception/transmission frozen during debug
 	CAN1->BTR |= CAN_BTR_BRP_Msk & 9;				// Baud rate prescaler. These bits define the length of a time quanta.
 	CAN1->BTR &= ~CAN_BTR_TS1;
 	CAN1->BTR |= CAN_BTR_TS1 & (3 << 16);			// number of time quanta in Time Segment 1
@@ -232,49 +229,55 @@ void InitCAN() {
 	CAN1->BTR |= CAN_BTR_TS2 & (3 << 20);			// number of time quanta in Time Segment 2
 	CAN1->BTR |= CAN_BTR_LBKM;						// Loopback mode for testing
 
-	/* finish bxCAN setup */
-	CAN1->MCR |= CAN_MCR_ABOM;				//  Automatic bus-off management:  The Bus-Off state is left automatically by hardware once 128 occurrences of 11 recessive	bits have been monitored
-	CAN1->MCR |= CAN_MCR_TXFP | CAN_MCR_RFLM | CAN_MCR_AWUM; // automatic wakeup, tx round-robin mode
+	// CAN Settings
+	CAN1->MCR &= ~CAN_MCR_DBF;						// 0: CAN working during debug	1: CAN reception/transmission frozen during debug
+	CAN1->MCR |= CAN_MCR_ABOM;						// Automatic bus-off management:  The Bus-Off state is left automatically by hardware once 128 occurrences of 11 recessive	bits have been monitored
+	CAN1->MCR |= CAN_MCR_TXFP;						// Transmit FIFO priority: 1: Priority driven by the request order (chronologically)
+	CAN1->MCR &= ~CAN_MCR_RFLM;						// Overrun: Last message stored in the FIFO will be overwritten by the new incoming message
+	CAN1->MCR |= CAN_MCR_AWUM; 						// AWUM: Automatic wakeup mode:  The Sleep mode is left automatically by hardware on CAN message detection
 
+
+	/* Filter settings - in 32 bit mode FR1 contains the ID, FR2 contains the mask
+
+	CAN_FMR_CAN2SB:  CAN2 start bank (defaults to 14) - ie 0-13 are CAN1 filters, 14-27 are CAN2 filters
+
+	CAN receive FIFO 0 register CAN_RF0R - FMP0[1:0]: FIFO 0 messages pending
+	Interrupt request is generated if the FMPIE bit in the CAN_IER register is set.
+
+	*/
+	CAN1->FS1R |= 1 << CAN_FS1R_FSC0_Pos;			// Filter scale: 0: Dual 16-bit scale configuration; 1: Single 32-bit scale configuration
+	CAN1->FM1R &= ~CAN_FM1R_FBM0;					// Filter mode register 0: Two 32-bit registers of filter bank x are in Identifier Mask mode. 1: Two 32-bit registers of filter bank x are in Identifier List mode.
+	CAN1->FA1R |= CAN_FA1R_FACT0;					// Filter activation register
+	CAN1->sFilterRegister[0].FR1 = 0x4AB << 21;		// Filter bank 0 register 1: In 32 bit mode bits [31:21] are std ID
+//	CAN1->sFilterRegister[0].FR2 = 0xFF
+	CAN1->FMR &= ~CAN_FMR_FINIT;					// 0=Active filters mode.; 1=Initialization mode for the filters.
+
+	CAN1->IER |= CAN_IER_FMPIE0;					// FIFO message pending interrupt enable
+	NVIC_SetPriority(CAN1_RX0_IRQn, 4);				// Lower is higher priority
+	NVIC_EnableIRQ(CAN1_RX0_IRQn);
+/*
+	NVIC_SetPriority(CAN1_RX1_IRQn, 4);				// Lower is higher priority
+	NVIC_EnableIRQ(CAN1_RX1_IRQn);
+	NVIC_SetPriority(CAN1_SCE_IRQn, 4);				// Lower is higher priority
+	NVIC_EnableIRQ(CAN1_SCE_IRQn);
+*/
 
 	CAN1->MCR &= ~CAN_MCR_INRQ;						// Switch the hardware into normal mode. Hardware signals ready by clearing the INAK bit in the CAN_MSR register.
 }
 
-void SendCAN() {
-	/* p1083
-	In order to transmit a message, the application must select one empty transmit mailbox, set
-	up the identifier, the data length code (DLC) and the data before requesting the transmission
-	by setting the corresponding TXRQ bit in the CAN_TIxR register. Once the mailbox has left
-	empty state, the software no longer has write access to the mailbox registers. Immediately
-	after the TXRQ bit has been set, the mailbox enters pending state and waits to become the
-	highest priority mailbox, see Transmit Priority. As soon as the mailbox has the highest
-	priority it will be scheduled for transmission. The transmission of the message of the
-	scheduled mailbox will start (enter transmit state) when the CAN bus becomes idle. Once
-	the mailbox has been successfully transmitted, it will become empty again. The hardware
-	indicates a successful transmission by setting the RQCP and TXOK bits in the CAN_TSR
-	register.
-	 */
-	// Send CAN Data
-	int TransmitId = 0x4AB;
+void SendCAN(uint16_t canID, uint32_t lowData, uint32_t highData) {
+
+	// Send CAN Data p1083
 	CAN1->sTxMailBox[0].TIR = (uint32_t)0;
-	CAN1->sTxMailBox[0].TIR |= TransmitId << CAN_TI0R_STID_Pos;		//  Standard identifier
+	CAN1->sTxMailBox[0].TIR |= canID << CAN_TI0R_STID_Pos;		//  Standard identifier
 	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_IDE;			// Identifier extension: 0=Standard identifier; 1=Extended identifier
 	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_RTR;			// 1 RTR: Remote transmission request	0=Data frame; 1=Remote frame
 
 	CAN1->sTxMailBox[0].TDTR &= ~CAN_TDT0R_TGT;			// 0: Time stamp TIME[15:0] is not sent. 1: Time stamp TIME[15:0] value is sent in the last two data bytes of the 8-byte message
 	CAN1->sTxMailBox[0].TDTR |= (8 & CAN_TDT0R_DLC);	// Data length code
-	CAN1->sTxMailBox[0].TDLR = 0x1000FF00;				// CAN mailbox data low register
-	CAN1->sTxMailBox[0].TDHR = 0x452038F1;				// CAN mailbox data high register
+	CAN1->sTxMailBox[0].TDLR = lowData;				// CAN mailbox data low register
+	CAN1->sTxMailBox[0].TDHR = highData;				// CAN mailbox data high register
 	CAN1->sTxMailBox[0].TIR |= CAN_TI0R_TXRQ;			// Set by software to request the transmission for the corresponding mailbox
 
-
-/*
-	CAN1->FMR |= 1 << 0;
-	CAN1->FMR |= 14 << 8;
-	CAN1->FS1R |=1 << 14;
-	CAN1->sFilterRegister[14].FR1 = 0x245 << 21;
-	CAN1->FM1R |= (uint32_t)(1 << 14);
-	CAN1->FA1R |= 1 << 14;
-*/
 
 }
