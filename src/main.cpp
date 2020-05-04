@@ -48,7 +48,7 @@ int main(void) {
 
 		//can.ProcessCAN();
 		if ((CAN1->TSR & CAN_TSR_TME0) == CAN_TSR_TME0) {
-			SendCAN(0x222, 0x99887766, dummyData);
+			SendCAN(0x222, 0x99887766, dummyData * 2);
 		}
 		for (int t = 0; t < 10000; t++) {}
 
