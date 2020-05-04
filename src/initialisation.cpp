@@ -245,10 +245,22 @@ void InitCAN() {
 	Interrupt request is generated if the FMPIE bit in the CAN_IER register is set.
 
 	*/
+/*
 	CAN1->FS1R |= 1 << CAN_FS1R_FSC0_Pos;			// Filter scale: 0: Dual 16-bit scale configuration; 1: Single 32-bit scale configuration
+	CAN1->FS1R |= 1 << CAN_FS1R_FSC1_Pos;			// Filter scale: 0: Dual 16-bit scale configuration; 1: Single 32-bit scale configuration
 	CAN1->FM1R &= ~CAN_FM1R_FBM0;					// Filter mode register 0: Two 32-bit registers of filter bank x are in Identifier Mask mode. 1: Two 32-bit registers of filter bank x are in Identifier List mode.
 	CAN1->FA1R |= CAN_FA1R_FACT0;					// Filter activation register
-	CAN1->sFilterRegister[0].FR1 = 0x4AB << 21;		// Filter bank 0 register 1: In 32 bit mode bits [31:21] are std ID
+	CAN1->FA1R |= CAN_FA1R_FACT1;					// Filter activation register
+	CAN1->sFilterRegister[0].FR1 = 0x3BC << 21;		// Filter bank 0 register 1: In 32 bit mode bits [31:21] are std ID
+	CAN1->sFilterRegister[0].FR2 = 0x4AB << 21;		// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
+*/
+
+	CAN1->FM1R |= CAN_FM1R_FBM0;					// Filter mode register 0: Two 32-bit registers of filter bank x are in Identifier Mask mode. 1: Two 32-bit registers of filter bank x are in Identifier List mode.
+	CAN1->FM1R |= CAN_FM1R_FBM1;					// Filter mode register 0: Two 32-bit registers of filter bank x are in Identifier Mask mode. 1: Two 32-bit registers of filter bank x are in Identifier List mode.
+	CAN1->FA1R |= CAN_FA1R_FACT0;					// Filter activation register
+	CAN1->FA1R |= CAN_FA1R_FACT1;					// Filter activation register
+	CAN1->sFilterRegister[0].FR1 = 0x3BC << 8;		// Filter bank 0 register 1: In 32 bit mode bits [31:21] are std ID
+	CAN1->sFilterRegister[0].FR1 |= 0x4AB << 21;		// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
 //	CAN1->sFilterRegister[0].FR2 = 0xFF
 	CAN1->FMR &= ~CAN_FMR_FINIT;					// 0=Active filters mode.; 1=Initialization mode for the filters.
 

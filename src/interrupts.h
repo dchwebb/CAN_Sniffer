@@ -1,13 +1,22 @@
 // CAN1 Message received
 void CAN1_RX0_IRQHandler(void) {
 	//The software reads out the mailbox content and releases it by setting the RFOM bit in the	CAN_RFR register
+/*
 	canDataLow = CAN1->sFIFOMailBox[0].RDLR;
 	canDataHigh = CAN1->sFIFOMailBox[0].RDHR;
 	canID = CAN1->sFIFOMailBox[0].RIR >> 21;
-	CAN1->RF0R |= CAN_RF0R_RFOM0;
+*/
 
+	can.Queue[can.QueueWrite].id = CAN1->sFIFOMailBox[0].RIR >> 21;
+	can.Queue[can.QueueWrite].dataLow = CAN1->sFIFOMailBox[0].RDLR;
+	can.Queue[can.QueueWrite].dataHigh = CAN1->sFIFOMailBox[0].RDHR;
 
+	can.QueueSize++;
+	can.QueueWrite = (can.QueueWrite + 1) % CANQUEUESIZE;
+
+	CAN1->RF0R |= CAN_RF0R_RFOM0;		// Mark the contents of the FIFO as read
 }
+
 /*
 #ifdef STM32F446xx
 
