@@ -1,30 +1,20 @@
 #include "initialisation.h"
 
-#define USE_HSE
 #define PLL_M 8
 #define PLL_N 360
 #define PLL_P 2		//  Main PLL (PLL) division factor for main system clock can be 2 (PLL_P = 0), 4 (PLL_P = 1), 6 (PLL_P = 2), 8 (PLL_P = 3)
 #define PLL_Q 7
 
 void SystemClock_Config(void) {
-	uint32_t temp = 0x00000000;
 
 	RCC->APB1ENR |= RCC_APB1ENR_PWREN;			// Enable Power Control clock
 	PWR->CR |= PWR_CR_VOS_0;					// Enable VOS voltage scaling - allows maximum clock speed
 
 	SCB->CPACR |= ((3UL << 10*2)|(3UL << 11*2));// CPACR register: set full access privileges for coprocessors
 
-#ifdef USE_HSE
 	RCC->CR |= RCC_CR_HSEON;					// HSE ON
 	while ((RCC->CR & RCC_CR_HSERDY) == 0);		// Wait till HSE is ready
 	RCC->PLLCFGR = PLL_M | (PLL_N << 6) | (((PLL_P >> 1) -1) << 16) | (RCC_PLLCFGR_PLLSRC_HSE) | (PLL_Q << 24);
-#endif
-
-#ifdef USE_HSI
-	RCC->CR |= RCC_CR_HSION;					// HSI ON
-	while((RCC->CR & RCC_CR_HSIRDY) == 0);		// Wait till HSI is ready
-    RCC->PLLCFGR = PLL_M | (PLL_N << 6) | (((PLL_P >> 1) -1) << 16) | (RCC_PLLCFGR_PLLSRC_HSI) | (PLL_Q << 24);
-#endif
 
 	RCC->CFGR |= RCC_CFGR_HPRE_DIV1;			// HCLK = SYSCLK / 1
 	RCC->CFGR |= RCC_CFGR_PPRE2_DIV2;			// PCLK2 = HCLK / 2
@@ -260,11 +250,16 @@ void InitCAN() {
 	CAN1->FM1R |= CAN_FM1R_FBM1;					// Filter mode 1: Exact ID matching
 	CAN1->FA1R |= CAN_FA1R_FACT0;					// Filter activation register
 	//CAN1->FA1R |= CAN_FA1R_FACT1;					// Filter activation register
+
+	// Clear all filters
+	for (uint8_t f = 0; f < 28; ++f) {
+		CAN1->sFilterRegister[f].FR1 = 0;
+		CAN1->sFilterRegister[f].FR2 = 0;
+	}
+
 	CAN1->sFilterRegister[0].FR1 = 0x222 << 5;		// Filter bank 0 register 1: In 16 bit mode bits [31:21] are ID of first filter, [8:20] are ID of second filter
 	CAN1->sFilterRegister[0].FR1 |= 0x4AB << 21;	// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
-	CAN1->sFilterRegister[0].FR2 = 0x3BC << 5;				// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
-	CAN1->sFilterRegister[1].FR1 = 0;				// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
-	CAN1->sFilterRegister[1].FR2 = 0;				// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
+	CAN1->sFilterRegister[0].FR2 = 0x3BC << 5;		// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
 	CAN1->FMR &= ~CAN_FMR_FINIT;					// 0=Active filters mode.; 1=Initialization mode for the filters.
 
 	CAN1->IER |= CAN_IER_FMPIE0;					// FIFO message pending interrupt enable
