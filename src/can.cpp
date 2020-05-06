@@ -75,12 +75,18 @@ void CANHandler::ProcessCAN() {
 
 	// Draw CAN events one at a time
 	if (CANEvents.size() > 0) {
-		if (CANPos >= CANPAGEITEMS || CANPos + (pageNo * CANPAGEITEMS) >= CANEvents.size()) {
-			CANPos = 0;
+		if (viewIDMode) {
+			DrawId();
 			DrawUI();
+		} else {
+			if (CANPos >= CANPAGEITEMS || CANPos + (pageNo * CANPAGEITEMS) >= CANEvents.size()) {
+				CANPos = 0;
+				DrawUI();
+			} else {
+				DrawList(CANEvents[CANPos + (pageNo * CANPAGEITEMS)]);
+				CANPos++;
+			}
 		}
-		DrawEvent(CANEvents[CANPos + (pageNo * CANPAGEITEMS)]);
-		CANPos++;
 	}
 
 }
@@ -95,14 +101,29 @@ inline void CANHandler::QueueInc() {
 
 extern bool pageDown;
 
-void CANHandler::DrawEvent(const CANEvent& event) {
+void CANHandler::DrawList(const CANEvent& event) {
 
 	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
 
 	lcd.DrawString(10, top, intToHexString(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
+	// Draw bytes as hex values in alternating colours
 	for (uint8_t c = 0; c < 8; ++c) {
 		lcd.DrawString(60 + (c * 29), top, hexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
+	}
+}
+
+void CANHandler::DrawId() {
+	lcd.DrawString(10, 5, "ID: 0x" + intToHexString(viewID->id) + " (" + intToString(viewID->id) + ")", &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+	lcd.DrawString(10, 30, "H:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	lcd.DrawString(10, 50, "L:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	lcd.DrawString(160, 30, "(" + intToString(viewID->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	lcd.DrawString(160, 50, "(" + intToString(viewID->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+
+	for (uint8_t c = 0; c < 4; ++c) {
+		lcd.DrawString(40 + (c * 29), 30, hexByte(viewID->dataHigh >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(40 + (c * 29), 50, hexByte(viewID->dataLow >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 	}
 
 }
@@ -130,16 +151,22 @@ void CANHandler::DrawUI() {
 		if (ce != CANEvents.end()) {
 			viewIDMode = true;
 			viewID = ce;
+		} else {
+			cmdValid = false;
 		}
 	} else {
 		cmdValid = false;
 	}
 
-	lcd.DrawString(230, 205, "p. " + intToString(pageNo + 1) + "/" + intToString(pageCount), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	if (cmdValid)
+		lcd.ColourFill(0, 0, lcd.width - 1, CANDrawHeight - 1, LCD_BLACK);
+
+	if (!viewIDMode)
+		lcd.DrawString(230, CANDrawHeight, "p. " + intToString(pageNo + 1) + "/" + intToString(pageCount), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 
 	if (pendingCmd != "") {
-		lcd.ColourFill(0, 205, lcd.width - 1, lcd.height - 1, LCD_BLACK);
-		lcd.DrawString(10, 205, "Cmd: " + pendingCmd, &lcd.Font_Large, cmdValid ? LCD_GREEN : LCD_RED, LCD_BLACK);
+		lcd.ColourFill(0, CANDrawHeight, lcd.width - 1, lcd.height - 1, LCD_BLACK);
+		lcd.DrawString(10, CANDrawHeight, (viewIDMode ? "ID detail: " : "Cmd: ") + pendingCmd, &lcd.Font_Large, cmdValid ? LCD_GREEN : LCD_RED, LCD_BLACK);
 	}
 
 	pendingCmd.clear();

@@ -6,6 +6,8 @@
 #define CANQUEUESIZE 30
 #define CANDRAWHEIGHT 17
 #define CANPAGEITEMS 11
+#define CANWINDOWHEIGHT 205
+
 extern LCD lcd;
 
 struct CANEvent {
@@ -32,10 +34,12 @@ public:
 private:
 	uint8_t CANPos = 0;
 	uint16_t pageNo = 0;
+	const uint8_t CANDrawHeight = 205;
 	bool viewIDMode = false;
 	std::deque<CANEvent>::iterator viewID;
 	std::deque<CANEvent> CANEvents;
-	void DrawEvent(const CANEvent& event);
+	void DrawList(const CANEvent& event);
+	void DrawId();
 	void DrawUI();
 	void QueueInc();
 };
