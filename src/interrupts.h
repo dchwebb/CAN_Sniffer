@@ -93,11 +93,11 @@ void TIM1_BRK_TIM9_IRQHandler(void) {
 	TIM9->SR &= ~TIM_SR_UIF;									// clear UIF flag
 	coverageTimer ++;
 }
-
+*/
 void SysTick_Handler(void) {
 	SysTickVal++;
 }
-*/
+
 void NMI_Handler(void);
 void HardFault_Handler(void);
 void MemManage_Handler(void);

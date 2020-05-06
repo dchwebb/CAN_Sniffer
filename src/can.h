@@ -14,6 +14,7 @@ struct CANEvent {
 	uint16_t id;
 	uint32_t dataLow;
 	uint32_t dataHigh;
+	uint32_t updated;
 };
 
 // Holds raw CAN events as they fire interrupts

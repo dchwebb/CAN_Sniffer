@@ -31,7 +31,7 @@ int main(void) {
 	SystemCoreClockUpdate();				// Update SystemCoreClock (system clock frequency) derived from settings of oscillators, prescalers and PLL
 	InitLCDHardware();
 	InitUART();
-	//	InitSysTick();
+	InitSysTick();
 
 	lcd.Init();								// Initialize ILI9341 LCD
 	InitCAN();

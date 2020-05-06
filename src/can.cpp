@@ -59,12 +59,13 @@ void CANHandler::ProcessCAN() {
 			if (event->id == nextEvent.id) {
 				event->dataLow = nextEvent.dataLow;
 				event->dataHigh = nextEvent.dataHigh;
+				event->updated = SysTickVal;
 				edited = true;
 			}
 		}
 
 		if (!edited)
-			CANEvents.push_front({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh});
+			CANEvents.push_front({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh, SysTickVal});
 
 		// erase first item if list greater than maximum size
 		if (CANEvents.size() > 50)
@@ -116,15 +117,21 @@ void CANHandler::DrawList(const CANEvent& event) {
 void CANHandler::DrawId() {
 	lcd.DrawString(10, 5, "ID: 0x" + intToHexString(viewID->id) + " (" + intToString(viewID->id) + ")", &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
+	// Print out high low labels and decimal values
 	lcd.DrawString(10, 30, "H:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 	lcd.DrawString(10, 50, "L:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 	lcd.DrawString(160, 30, "(" + intToString(viewID->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 	lcd.DrawString(160, 50, "(" + intToString(viewID->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 
+	// Print out high low bytes in hex
 	for (uint8_t c = 0; c < 4; ++c) {
 		lcd.DrawString(40 + (c * 29), 30, hexByte(viewID->dataHigh >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 		lcd.DrawString(40 + (c * 29), 50, hexByte(viewID->dataLow >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 	}
+
+	// print out last update time
+	lcd.DrawString(10, 75, "Updated: " + intToString(viewID->updated), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+
 
 }
 
