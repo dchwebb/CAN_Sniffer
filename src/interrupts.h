@@ -17,6 +17,19 @@ void CAN1_RX0_IRQHandler(void) {
 	CAN1->RF0R |= CAN_RF0R_RFOM0;		// Mark the contents of the FIFO as read
 }
 
+// USART Decoder
+void USART1_IRQHandler(void) {
+	if (USART1->SR | USART_SR_RXNE && !uartCmdRdy) {
+		uartCmd[uartCmdPos] = USART1->DR; 				// accessing DR automatically resets the receive flag
+		if (uartCmd[uartCmdPos] == 10) {
+			uartCmdRdy = true;
+			uartCmdPos = 0;
+		} else {
+			uartCmdPos++;
+		}
+	}
+}
+
 /*
 #ifdef STM32F446xx
 

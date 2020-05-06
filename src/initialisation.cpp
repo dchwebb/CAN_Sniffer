@@ -246,8 +246,8 @@ void InitCAN() {
 	CAN1->sFilterRegister[0].FR2 = 0x4AB << 21;		// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
 */
 
-	CAN1->FM1R |= CAN_FM1R_FBM0;					// Filter mode 1: Exact ID matching
-	CAN1->FM1R |= CAN_FM1R_FBM1;					// Filter mode 1: Exact ID matching
+	CAN1->FM1R &= ~CAN_FM1R_FBM0;					// Filter mode 0: masked filter mode
+	//CAN1->FM1R = CAN_FM1R_FBM1;					// Filter mode 1: Exact ID matching
 	CAN1->FA1R |= CAN_FA1R_FACT0;					// Filter activation register
 	//CAN1->FA1R |= CAN_FA1R_FACT1;					// Filter activation register
 
@@ -257,10 +257,13 @@ void InitCAN() {
 		CAN1->sFilterRegister[f].FR2 = 0;
 	}
 
-	CAN1->sFilterRegister[0].FR1 = 0x222 << 5;		// Filter bank 0 register 1: In 16 bit mode bits [31:21] are ID of first filter, [8:20] are ID of second filter
-	CAN1->sFilterRegister[0].FR1 |= 0x4AB << 21;	// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
-	CAN1->sFilterRegister[0].FR2 = 0x3BC << 5;		// Filter bank 0 register 2: In 32 bit mode bits [31:21] are std ID
-	CAN1->FMR &= ~CAN_FMR_FINIT;					// 0=Active filters mode.; 1=Initialization mode for the filters.
+	// in masked mode identifier is at bit 5, mask is at bit 21
+	CAN1->sFilterRegister[0].FR1 = 0x100 << 5;		// Filter bank 0 register 1: Bits [15:5] ID - ie only IDs that start 0x1XX
+	CAN1->sFilterRegister[0].FR1 |= 0x100 << 21;	// Filter bank 0 register 2: Bits [31:21] ID Mask
+	CAN1->sFilterRegister[0].FR2 = 0x0 << 5;		// Filter bank 1 register 1: Disable filter
+	CAN1->sFilterRegister[0].FR2 |= 0x7FF << 21;	// Filter bank 1 register 2: Disable filter mask
+
+	CAN1->FMR &= ~CAN_FMR_FINIT;					// 0=Active filters mode; 1=Initialization mode for the filters.
 
 	CAN1->IER |= CAN_IER_FMPIE0;					// FIFO message pending interrupt enable
 	NVIC_SetPriority(CAN1_RX0_IRQn, 4);				// Lower is higher priority
@@ -280,14 +283,39 @@ void SendCAN(uint16_t canID, uint32_t lowData, uint32_t highData) {
 	// Send CAN Data p1083
 	CAN1->sTxMailBox[0].TIR = (uint32_t)0;
 	CAN1->sTxMailBox[0].TIR |= canID << CAN_TI0R_STID_Pos;		//  Standard identifier
-	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_IDE;			// Identifier extension: 0=Standard identifier; 1=Extended identifier
-	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_RTR;			// 1 RTR: Remote transmission request	0=Data frame; 1=Remote frame
+	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_IDE;		// Identifier extension: 0=Standard identifier; 1=Extended identifier
+	CAN1->sTxMailBox[0].TIR &= ~CAN_TI0R_RTR;		// 1 RTR: Remote transmission request	0=Data frame; 1=Remote frame
 
-	CAN1->sTxMailBox[0].TDTR &= ~CAN_TDT0R_TGT;			// 0: Time stamp TIME[15:0] is not sent. 1: Time stamp TIME[15:0] value is sent in the last two data bytes of the 8-byte message
-	CAN1->sTxMailBox[0].TDTR |= (8 & CAN_TDT0R_DLC);	// Data length code
+	CAN1->sTxMailBox[0].TDTR &= ~CAN_TDT0R_TGT;		// 0: Time stamp TIME[15:0] is not sent. 1: Time stamp TIME[15:0] value is sent in the last two data bytes of the 8-byte message
+	CAN1->sTxMailBox[0].TDTR |= (8 & CAN_TDT0R_DLC);// Data length code
 	CAN1->sTxMailBox[0].TDLR = lowData;				// CAN mailbox data low register
-	CAN1->sTxMailBox[0].TDHR = highData;				// CAN mailbox data high register
-	CAN1->sTxMailBox[0].TIR |= CAN_TI0R_TXRQ;			// Set by software to request the transmission for the corresponding mailbox
+	CAN1->sTxMailBox[0].TDHR = highData;			// CAN mailbox data high register
+	CAN1->sTxMailBox[0].TIR |= CAN_TI0R_TXRQ;		// Set by software to request the transmission for the corresponding mailbox
+
+}
 
 
+void InitUART() {
+	// F427 Discovery STLink connects virtual COM port to PA9 (USART1_TX) and PA10 (USART1_RX) AF7
+
+	RCC->APB2ENR |= RCC_APB2ENR_USART1EN;			// UART4 clock enable
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;			// GPIO port A
+
+	GPIOA->MODER |= GPIO_MODER_MODER9_1;			// Set alternate function on PA9
+	GPIOA->AFR[1] |= 7 << 4;						// Alternate function on PA9 for UAART1_TX is AF7
+	GPIOA->MODER |= GPIO_MODER_MODER10_1;			// Set alternate function on PA10
+	GPIOA->AFR[1] |= 7 << 8;						// Alternate function on PA10 for UAART1_RX is AF7
+
+	int Baud = (SystemCoreClock / 4) / (8 * 230400);
+	USART1->BRR |= Baud << 4;						// Baud Rate (called USART_BRR_DIV_Mantissa) = (Sys Clock: 180MHz / APB1 Prescaler DIV4: 45MHz) / (8 * 230400) = 24
+	USART1->CR1 &= ~USART_CR1_M;					// 0: 1 Start bit, 8 Data bits, n Stop bit; 	1: 1 Start bit, 9 Data bits, n Stop bit
+	USART1->CR1 |= USART_CR1_RE;					// Receive enable
+	USART1->CR1 |= USART_CR1_TE;					// Transmitter enable
+
+	// Set up interrupts
+	USART1->CR1 |= USART_CR1_RXNEIE;
+	NVIC_SetPriority(USART1_IRQn, 3);				// Lower is higher priority
+	NVIC_EnableIRQ(USART1_IRQn);
+
+	USART1->CR1 |= USART_CR1_UE;					// USART Enable
 }

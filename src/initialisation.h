@@ -9,6 +9,7 @@
 #include <array>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 
 // Coverage profiler macros using timer 4 to count clock cycles / 10
 #define CP_ON		TIM9->EGR |= TIM_EGR_UG; TIM9->CR1 |= TIM_CR1_CEN; coverageTimer=0;
@@ -89,3 +90,4 @@ void InitDebounceTimer();
 void InitEncoders();
 void InitCAN();
 void SendCAN(uint16_t canID, uint32_t lowData, uint32_t highData);
+void InitUART();

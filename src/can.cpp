@@ -27,9 +27,17 @@ std::string intToString(uint32_t v) {
 	return ss.str();
 }
 
-std::string intToHexString(uint32_t v) {
+std::string hexByte(uint16_t v) {
 	std::stringstream ss;
-	ss << "0x";
+	ss.width(2);
+	ss.fill('0');
+	ss << std::hex << v;
+	return ss.str();
+}
+
+template <class T>
+std::string intToHexString(T v) {
+	std::stringstream ss;
 	ss << std::hex << v;
 	return ss.str();
 }
@@ -59,22 +67,22 @@ void CANHandler::ProcessCAN() {
 			CANEvents.push_front({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh});
 
 		// erase first item if list greater than maximum size
-		if (CANEvents.size() > 12)
+		if (CANEvents.size() > 50)
 			CANEvents.erase(CANEvents.end());
 
 	}
 
 
-	if (QueueSize < 10) {
-		// Draw CAN events one at a time
-		if (CANEvents.size() > 0) {
-			if (CANPos >= CANEvents.size()) {
-				CANPos = 0;
-			}
-			DrawEvent(CANEvents[CANPos]);
-			CANPos++;
+	// Draw CAN events one at a time
+	if (CANEvents.size() > 0) {
+		if (CANPos >= CANPAGEITEMS || CANPos + (pageNo * CANPAGEITEMS) >= CANEvents.size()) {
+			CANPos = 0;
+			DrawUI();
 		}
+		DrawEvent(CANEvents[CANPos + (pageNo * CANPAGEITEMS)]);
+		CANPos++;
 	}
+
 }
 
 
@@ -83,12 +91,57 @@ inline void CANHandler::QueueInc() {
 	QueueRead = (QueueRead + 1) % CANQUEUESIZE;
 }
 
+
+
+extern bool pageDown;
+
 void CANHandler::DrawEvent(const CANEvent& event) {
 
-	uint8_t top = CANDRAWHEIGHT * CANPos;
+	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
 
-	lcd.DrawString(10, top, "ID:" + intToHexString(event.id) + " H:" + intToHexString(event.dataHigh), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	//lcd.DrawString(10, 30, "Low:" + intToHexString(canDataLow), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	//lcd.DrawString(10, 50, "High:" + intToHexString(canDataHigh), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(10, top, intToHexString(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+	for (uint8_t c = 0; c < 8; ++c) {
+		lcd.DrawString(60 + (c * 29), top, hexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
+	}
+
+}
+
+void CANHandler::DrawUI() {
+	// Draw standard UI elements
+	uint16_t pageCount = std::ceil((float)CANEvents.size() / CANPAGEITEMS);
+	bool cmdValid = true;
+
+	if (pendingCmd == "p") {									// Page Down
+		pageNo = (pageNo == pageCount - 1) ? 0 : pageNo + 1;
+	} else if (pendingCmd == "u") {								// Page Up
+		pageNo = (pageNo == 0) ? pageCount - 1 : pageNo - 1;
+	} else if (pendingCmd == "q" && viewIDMode) {				// Exit view ID mode
+		viewIDMode = false;
+	} else if (std::isdigit(pendingCmd[0])) {					// View ID
+		// view id mode - search to check we have event with matching ID and store iterator if so
+		uint16_t id;
+		std::stringstream ss;
+		ss << std::hex << pendingCmd;
+		ss >> id;
+
+		auto ce = CANEvents.begin();
+		ce = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == id; } );
+		if (ce != CANEvents.end()) {
+			viewIDMode = true;
+			viewID = ce;
+		}
+	} else {
+		cmdValid = false;
+	}
+
+	lcd.DrawString(230, 205, "p. " + intToString(pageNo + 1) + "/" + intToString(pageCount), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+
+	if (pendingCmd != "") {
+		lcd.ColourFill(0, 205, lcd.width - 1, lcd.height - 1, LCD_BLACK);
+		lcd.DrawString(10, 205, "Cmd: " + pendingCmd, &lcd.Font_Large, cmdValid ? LCD_GREEN : LCD_RED, LCD_BLACK);
+	}
+
+	pendingCmd.clear();
 }
 
