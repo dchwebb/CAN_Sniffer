@@ -6,7 +6,6 @@
 #define CANQUEUESIZE 30
 #define CANDRAWHEIGHT 17
 #define CANPAGEITEMS 11
-#define CANWINDOWHEIGHT 205
 
 extern LCD lcd;
 
@@ -15,6 +14,7 @@ struct CANEvent {
 	uint32_t dataLow;
 	uint32_t dataHigh;
 	uint32_t updated;
+	uint32_t hits;
 };
 
 // Holds raw CAN events as they fire interrupts
@@ -32,6 +32,7 @@ public:
 	uint8_t QueueWrite = 0;
 	uint8_t QueueSize = 0;
 	std::string pendingCmd;
+	bool sendTestData = false;
 private:
 	uint8_t CANPos = 0;
 	uint16_t pageNo = 0;

@@ -83,11 +83,13 @@
 
 extern volatile uint32_t SysTickVal;
 
-void SystemClock_Config(void);
+void SystemClock_Config();
 void InitSysTick();
-void InitLCDHardware(void);
+void InitLCDHardware();
 void InitDebounceTimer();
 void InitEncoders();
 void InitCAN();
 void SendCAN(uint16_t canID, uint32_t lowData, uint32_t highData);
 void InitUART();
+void uartSendChar(char c);
+

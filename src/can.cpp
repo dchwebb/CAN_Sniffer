@@ -60,12 +60,13 @@ void CANHandler::ProcessCAN() {
 				event->dataLow = nextEvent.dataLow;
 				event->dataHigh = nextEvent.dataHigh;
 				event->updated = SysTickVal;
+				event->hits++;
 				edited = true;
 			}
 		}
 
 		if (!edited)
-			CANEvents.push_front({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh, SysTickVal});
+			CANEvents.push_front({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh, SysTickVal, 0});
 
 		// erase first item if list greater than maximum size
 		if (CANEvents.size() > 50)
@@ -88,6 +89,8 @@ void CANHandler::ProcessCAN() {
 				CANPos++;
 			}
 		}
+	} else {
+		DrawUI();
 	}
 
 }
@@ -129,8 +132,9 @@ void CANHandler::DrawId() {
 		lcd.DrawString(40 + (c * 29), 50, hexByte(viewID->dataLow >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 	}
 
-	// print out last update time
-	lcd.DrawString(10, 75, "Updated: " + intToString(viewID->updated), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	// print out last update time and number of hits
+	lcd.DrawString(10, 75, "Updated: " + intToString(std::round((float)(SysTickVal - viewID->updated) / 10)) + "ms", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	lcd.DrawString(10, 95, "Hits: " + intToString(viewID->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
 
 
 }
@@ -144,6 +148,30 @@ void CANHandler::DrawUI() {
 		pageNo = (pageNo == pageCount - 1) ? 0 : pageNo + 1;
 	} else if (pendingCmd == "u") {								// Page Up
 		pageNo = (pageNo == 0) ? pageCount - 1 : pageNo - 1;
+	} else if (pendingCmd == "test") {							// Test Mode on/off
+		sendTestData = !sendTestData;
+	} else if (pendingCmd == "dump") {							// Dump data to serial
+		for (auto ce : CANEvents) {
+
+			// Send ID
+			auto textId = intToHexString(ce.id);
+			for (uint8_t c = 0; c < 3; ++c) {
+				uartSendChar(textId[c]);
+			}
+			uartSendChar(' ');
+
+			//Send data Byte
+			auto textLowByte = intToHexString(ce.dataLow);
+			for (uint8_t c = 0; c < textLowByte.length(); ++c) {
+				uartSendChar(textLowByte[c]);
+			}
+			uartSendChar(' ');
+			auto textHighByte = intToHexString(ce.dataHigh);
+			for (uint8_t c = 0; c < textHighByte.length(); ++c) {
+				uartSendChar(textHighByte[c]);
+			}
+			uartSendChar(10);
+		}
 	} else if (pendingCmd == "q" && viewIDMode) {				// Exit view ID mode
 		viewIDMode = false;
 	} else if (std::isdigit(pendingCmd[0])) {					// View ID
@@ -168,8 +196,10 @@ void CANHandler::DrawUI() {
 	if (cmdValid)
 		lcd.ColourFill(0, 0, lcd.width - 1, CANDrawHeight - 1, LCD_BLACK);
 
-	if (!viewIDMode)
+	if (!viewIDMode) {
+		lcd.DrawString(180, CANDrawHeight, intToString(CANEvents.size()), &lcd.Font_Large, LCD_CYAN, LCD_BLACK);
 		lcd.DrawString(230, CANDrawHeight, "p. " + intToString(pageNo + 1) + "/" + intToString(pageCount), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	}
 
 	if (pendingCmd != "") {
 		lcd.ColourFill(0, CANDrawHeight, lcd.width - 1, lcd.height - 1, LCD_BLACK);

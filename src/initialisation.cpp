@@ -5,7 +5,7 @@
 #define PLL_P 2		//  Main PLL (PLL) division factor for main system clock can be 2 (PLL_P = 0), 4 (PLL_P = 1), 6 (PLL_P = 2), 8 (PLL_P = 3)
 #define PLL_Q 7
 
-void SystemClock_Config(void) {
+void SystemClock_Config() {
 
 	RCC->APB1ENR |= RCC_APB1ENR_PWREN;			// Enable Power Control clock
 	PWR->CR |= PWR_CR_VOS_0;					// Enable VOS voltage scaling - allows maximum clock speed
@@ -39,19 +39,20 @@ void InitSysTick()
 
 	// Register macros found in core_cm4.h
 	SysTick->CTRL = 0;								// Disable SysTick
-	SysTick->LOAD = 0xFFFF - 1;						// Set reload register to maximum 2^24
+	SysTick->LOAD = 1800000;						// Set reload register to sys clock / 10000 to give one tick per 10ms (maximum 2^24)
 
 	// Set priority of Systick interrupt to least urgency (ie largest priority value)
 	NVIC_SetPriority (SysTick_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
 
 	SysTick->VAL = 0;								// Reset the SysTick counter value
 
-	SysTick->CTRL |= SysTick_CTRL_CLKSOURCE_Msk;	// Select processor clock: 1 = processor clock; 0 = external clock
+	// This should give a tick every 180Mhz / 1.8M = 100 times a second; ie each tick is 10ms long
+	SysTick->CTRL |= SysTick_CTRL_CLKSOURCE_Msk;	// Select processor clock: 1 = Processor clock (AHB); 0 = AHB/8
 	SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;		// Enable SysTick interrupt
 	SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;		// Enable SysTick
 }
 
-void InitLCDHardware(void) {
+void InitLCDHardware() {
 	//	Enable GPIO and SPI clocks
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;			// reset and clock control - advanced high performance bus - GPIO port C
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;			// reset and clock control - advanced high performance bus - GPIO port D
@@ -191,7 +192,7 @@ void InitCAN() {
 	GPIOD->AFR[0] |= 9 << 4;						// Alternate function 9 is CAN1_TX
 	GPIOD->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR1_1;
 
-	// CAN_RX Pins (AF9): PA11, PB8, PD0
+	// CAN_RX Pins (AF9): PD0 (also PA11, PB8)
 	GPIOD->MODER |= GPIO_MODER_MODER0_1;			// Set alternate function
 	GPIOD->AFR[0] |= 9 << 0;						// Alternate function 9 is CAN1_RX
 
@@ -217,7 +218,8 @@ void InitCAN() {
 	CAN1->BTR |= CAN_BTR_TS1 & (3 << 16);			// number of time quanta in Time Segment 1
 	CAN1->BTR &= ~CAN_BTR_TS2;
 	CAN1->BTR |= CAN_BTR_TS2 & (3 << 20);			// number of time quanta in Time Segment 2
-	CAN1->BTR |= CAN_BTR_LBKM;						// Loopback mode for testing
+	CAN1->BTR |= CAN_BTR_LBKM;					// Loopback mode for testing
+	//CAN1->BTR |= CAN_BTR_SILM;						// Silent Mode - do not initiate traffic on the bus
 
 	// CAN Settings
 	CAN1->MCR &= ~CAN_MCR_DBF;						// 0: CAN working during debug	1: CAN reception/transmission frozen during debug
@@ -261,7 +263,8 @@ void InitCAN() {
 	CAN1->sFilterRegister[0].FR1 = 0x100 << 5;		// Filter bank 0 register 1: Bits [15:5] ID - ie only IDs that start 0x1XX
 	CAN1->sFilterRegister[0].FR1 |= 0x100 << 21;	// Filter bank 0 register 2: Bits [31:21] ID Mask
 	CAN1->sFilterRegister[0].FR2 = 0x0 << 5;		// Filter bank 1 register 1: Disable filter
-	CAN1->sFilterRegister[0].FR2 |= 0x7FF << 21;	// Filter bank 1 register 2: Disable filter mask
+	//CAN1->sFilterRegister[0].FR2 |= 0x7FF << 21;	// Filter bank 1 register 2: Disable filter mask
+	CAN1->sFilterRegister[0].FR2 |= 0x0 << 21;	// Filter bank 1 register 2: Allow anything filter mask
 
 	CAN1->FMR &= ~CAN_FMR_FINIT;					// 0=Active filters mode; 1=Initialization mode for the filters.
 
@@ -318,4 +321,9 @@ void InitUART() {
 	NVIC_EnableIRQ(USART1_IRQn);
 
 	USART1->CR1 |= USART_CR1_UE;					// USART Enable
+}
+
+void uartSendChar(char c) {
+	while ((USART1->SR & USART_SR_TXE) == 0);
+	USART1->DR = c;
 }

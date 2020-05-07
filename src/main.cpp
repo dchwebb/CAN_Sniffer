@@ -37,15 +37,21 @@ int main(void) {
 	InitCAN();
 
 	while (1) {
-		dummyData++;
 
-		for (uint16_t tempId = 0x100; tempId < 0x12E; ++tempId) {
-			if ((CAN1->TSR & CAN_TSR_TME0) == CAN_TSR_TME0) {
-				SendCAN(tempId, 0x1000FF00, dummyData * tempId);
+		if (can.sendTestData) {
+			// Send a stream of dummy data
+			dummyData++;
+			for (uint8_t idPrefix = 1; idPrefix < 8; ++idPrefix) {
+				for (uint8_t tempId = 0; tempId < 5; ++tempId) {
+					if ((CAN1->TSR & CAN_TSR_TME0) == CAN_TSR_TME0) {
+						SendCAN((idPrefix << 8) + (tempId + idPrefix), 0x89ABCDEF, dummyData * tempId);
+					}
+					for (int t = 0; t < 10000; t++) {}
+					can.ProcessCAN();
+				}
 			}
-			for (int t = 0; t < 10000; t++) {}
-			can.ProcessCAN();
 		}
+
 
 		if (uartCmdRdy) {
 			std::stringstream ss;
@@ -61,9 +67,9 @@ int main(void) {
 
 			uartCmdRdy = false;
 		}
-		//USART1->DR = 'B';
+		can.ProcessCAN();
 
-
+		//USART1->DR = 'B';			// Send a test character to the terminal
 
 	}
 }
