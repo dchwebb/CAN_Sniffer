@@ -1,33 +1,13 @@
 #include <can.h>
 
-std::string floatToString(float f, bool smartFormat) {
-	std::string s;
-	std::stringstream ss;
 
-	if (smartFormat && f > 10000) {
-		ss << (int16_t)std::round(f / 100);
-		s = ss.str();
-		s.insert(s.length() - 1, ".");
-		s+= "k";
-	} else if (smartFormat && f > 1000) {
-		ss << (int16_t)std::round(f);
-		s = ss.str();
-	} else	{
-		ss << (int32_t)std::round(f * 10);
-		s = ss.str();
-		s.insert(s.length() - 1, ".");
-	}
-	return s;
-}
-
-
-std::string intToString(uint32_t v) {
+std::string CANHandler::intToString(const uint32_t& v) {
 	std::stringstream ss;
 	ss << v;
 	return ss.str();
 }
 
-std::string hexByte(uint16_t v) {
+std::string CANHandler::hexByte(const uint16_t& v) {
 	std::stringstream ss;
 	ss.width(2);
 	ss.fill('0');
@@ -41,12 +21,25 @@ std::string CANHandler::CANIdToHex(const uint16_t& v) {
 	return ss.str();
 }
 
+std::string CANHandler::CANWordToBytes(const uint32_t& w) {
+	std::stringstream ss;
+
+	for (uint8_t c = 0; c < 4; ++c) {
+		ss << std::uppercase << std::setfill('0') << std::setw(2) << std::hex << (w >> (8 * (c % 4)) & 0xFF);
+		if (c < 3)
+			ss << ' ';
+	}
+	return ss.str();
+}
+
+// Process incoming CAN messages
 void CANHandler::ProcessCAN() {
 
 	while (QueueSize > 0) {
 		bool edited = false;
 		rawCANEvent nextEvent = Queue[QueueRead];
-		QueueInc();
+		QueueSize--;
+		QueueRead = (QueueRead + 1) % CANQUEUESIZE;
 
 
 		//	Overwrite last event if the id is the same
@@ -56,16 +49,17 @@ void CANHandler::ProcessCAN() {
 
 			event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == nextEvent.id; } );
 			if (event->id == nextEvent.id) {
+				if (event->dataLow != nextEvent.dataLow || event->dataHigh != nextEvent.dataHigh)
+					event->updated = SysTickVal;
 				event->dataLow = nextEvent.dataLow;
 				event->dataHigh = nextEvent.dataHigh;
-				event->updated = SysTickVal;
 				event->hits++;
 				edited = true;
 			}
 		}
 
 		if (!edited)
-			CANEvents.push_front({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh, SysTickVal, 0});
+			CANEvents.push_back({nextEvent.id, nextEvent.dataLow, nextEvent.dataHigh, SysTickVal, 0});
 
 		// erase first item if list greater than maximum size
 		if (CANEvents.size() > 50)
@@ -95,10 +89,6 @@ void CANHandler::ProcessCAN() {
 }
 
 
-inline void CANHandler::QueueInc() {
-	QueueSize--;
-	QueueRead = (QueueRead + 1) % CANQUEUESIZE;
-}
 
 void CANHandler::DrawList(const CANEvent& event) {
 
@@ -111,19 +101,6 @@ void CANHandler::DrawList(const CANEvent& event) {
 		lcd.DrawString(60 + (c * 29), top, hexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
 	}
 }
-
-std::string CANHandler::CANWordToBytes(const uint32_t& w) {
-	std::stringstream ss;
-
-	for (uint8_t c = 0; c < 4; ++c) {
-		ss << std::uppercase << std::setfill('0') << std::setw(2) << std::hex << (w >> (8 * (c % 4)) & 0xFF);
-		if (c < 3)
-			ss << ' ';
-	}
-	return ss.str();
-}
-
-
 
 
 
@@ -148,41 +125,59 @@ void CANHandler::DrawId() {
 
 }
 
-void CANHandler::DrawUI() {
-	// Draw standard UI elements
-	uint16_t pageCount = std::ceil((float)CANEvents.size() / CANPAGEITEMS);
+bool CANHandler::ProcessCmd() {
+	if (pendingCmd.empty())
+		return false;
+
 	bool cmdValid = true;
+	uint16_t pageCount = std::ceil((float)CANEvents.size() / CANPAGEITEMS);
 
-	if (pendingCmd == "p") {									// Page Down
-		pageNo = (pageNo == pageCount - 1) ? 0 : pageNo + 1;
-	} else if (pendingCmd == "u") {								// Page Up
-		pageNo = (pageNo == 0) ? pageCount - 1 : pageNo - 1;
-	} else if (pendingCmd == "test") {							// Test Mode on/off
-		sendTestData = !sendTestData;
-	} else if (pendingCmd == "dump") {							// Dump data to serial
-		for (auto ce : CANEvents) {
-			uartSendString("0x" + CANIdToHex(ce.id) + ' ' + CANWordToBytes(ce.dataLow) + ' ' + CANWordToBytes(ce.dataHigh) + '\n');
-		}
-	} else if (pendingCmd == "q" && viewIDMode) {				// Exit view ID mode
-		viewIDMode = false;
-	} else if (std::isdigit(pendingCmd[0])) {					// View ID
-		// view id mode - search to check we have event with matching ID and store iterator if so
-		uint16_t id;
-		std::stringstream ss;
-		ss << std::hex << pendingCmd;
-		ss >> id;
-
-		auto ce = CANEvents.begin();
-		ce = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == id; } );
-		if (ce != CANEvents.end()) {
-			viewIDMode = true;
-			viewID = ce;
+	if (viewIDMode) {
+		if (pendingCmd == "q") {				// Exit view ID mode
+			viewIDMode = false;
 		} else {
 			cmdValid = false;
 		}
 	} else {
-		cmdValid = false;
+
+		if (pendingCmd == "p") {									// Page Down
+			pageNo = (pageNo == pageCount - 1) ? 0 : pageNo + 1;
+		} else if (pendingCmd == "u") {								// Page Up
+			pageNo = (pageNo == 0) ? pageCount - 1 : pageNo - 1;
+		} else if (pendingCmd == "test") {							// Test Mode on/off
+			sendTestData = !sendTestData;
+		} else if (pendingCmd == "dump") {							// Dump data to serial
+			for (auto ce : CANEvents) {
+				uartSendString("0x" + CANIdToHex(ce.id) + ' ' + CANWordToBytes(ce.dataLow) + ' ' + CANWordToBytes(ce.dataHigh) + '\n');
+			}
+		} else if (std::isdigit(pendingCmd[0])) {					// View ID
+			// view id mode - search to check we have event with matching ID and store iterator if so
+			uint16_t id;
+			std::stringstream ss;
+			ss << std::hex << pendingCmd;
+			ss >> id;
+
+			auto ce = CANEvents.begin();
+			ce = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == id; } );
+			if (ce != CANEvents.end()) {
+				viewIDMode = true;
+				viewID = ce;
+			} else {
+				cmdValid = false;
+			}
+		} else {
+			cmdValid = false;
+		}
 	}
+
+	return cmdValid;
+}
+
+// Draw standard UI elements
+void CANHandler::DrawUI() {
+
+	bool cmdValid = ProcessCmd();
+	uint16_t pageCount = std::ceil((float)CANEvents.size() / CANPAGEITEMS);
 
 	if (cmdValid)
 		lcd.ColourFill(0, 0, lcd.width - 1, CANDrawHeight - 1, LCD_BLACK);

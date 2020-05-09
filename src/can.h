@@ -38,12 +38,15 @@ private:
 	uint16_t pageNo = 0;
 	const uint8_t CANDrawHeight = 205;
 	bool viewIDMode = false;
-	std::deque<CANEvent>::iterator viewID;
-	std::deque<CANEvent> CANEvents;
+	std::vector<CANEvent>::iterator viewID;
+	std::vector<CANEvent> CANEvents;
 	void DrawList(const CANEvent& event);
 	std::string CANWordToBytes(const uint32_t& w);
 	std::string CANIdToHex(const uint16_t& v);
+	std::string intToString(const uint32_t& v);
+	std::string hexByte(const uint16_t& v);
 	void DrawId();
 	void DrawUI();
-	void QueueInc();
+	bool ProcessCmd();
 };
+
