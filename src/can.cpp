@@ -35,10 +35,9 @@ std::string hexByte(uint16_t v) {
 	return ss.str();
 }
 
-template <class T>
-std::string intToHexString(T v) {
+std::string CANHandler::CANIdToHex(const uint16_t& v) {
 	std::stringstream ss;
-	ss << std::hex << v;
+	ss << std::uppercase << std::setfill('0') << std::setw(3) << std::hex << v;
 	return ss.str();
 }
 
@@ -101,15 +100,11 @@ inline void CANHandler::QueueInc() {
 	QueueRead = (QueueRead + 1) % CANQUEUESIZE;
 }
 
-
-
-extern bool pageDown;
-
 void CANHandler::DrawList(const CANEvent& event) {
 
 	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
 
-	lcd.DrawString(10, top, intToHexString(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, top, CANIdToHex(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
 	// Draw bytes as hex values in alternating colours
 	for (uint8_t c = 0; c < 8; ++c) {
@@ -117,20 +112,34 @@ void CANHandler::DrawList(const CANEvent& event) {
 	}
 }
 
+std::string CANHandler::CANWordToBytes(const uint32_t& w) {
+	std::stringstream ss;
+
+	for (uint8_t c = 0; c < 4; ++c) {
+		ss << std::uppercase << std::setfill('0') << std::setw(2) << std::hex << (w >> (8 * (c % 4)) & 0xFF);
+		if (c < 3)
+			ss << ' ';
+	}
+	return ss.str();
+}
+
+
+
+
+
 void CANHandler::DrawId() {
-	lcd.DrawString(10, 5, "ID: 0x" + intToHexString(viewID->id) + " (" + intToString(viewID->id) + ")", &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, 5, "ID: 0x" + CANIdToHex(viewID->id) + " (" + intToString(viewID->id) + ")", &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
 	// Print out high low labels and decimal values
 	lcd.DrawString(10, 30, "H:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 	lcd.DrawString(10, 50, "L:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	lcd.DrawString(160, 30, "(" + intToString(viewID->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	lcd.DrawString(160, 50, "(" + intToString(viewID->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 
 	// Print out high low bytes in hex
-	for (uint8_t c = 0; c < 4; ++c) {
-		lcd.DrawString(40 + (c * 29), 30, hexByte(viewID->dataHigh >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-		lcd.DrawString(40 + (c * 29), 50, hexByte(viewID->dataLow >> (8 * (c % 4)) & 0xFF), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	}
+	lcd.DrawString(40, 30, CANWordToBytes(viewID->dataHigh), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	lcd.DrawString(163, 30, "(" + intToString(viewID->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+
+	lcd.DrawString(40, 50, CANWordToBytes(viewID->dataLow), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	lcd.DrawString(163, 50, "(" + intToString(viewID->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 
 	// print out last update time and number of hits
 	lcd.DrawString(10, 75, "Updated: " + intToString(std::round((float)(SysTickVal - viewID->updated) / 10)) + "ms", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
@@ -152,25 +161,7 @@ void CANHandler::DrawUI() {
 		sendTestData = !sendTestData;
 	} else if (pendingCmd == "dump") {							// Dump data to serial
 		for (auto ce : CANEvents) {
-
-			// Send ID
-			auto textId = intToHexString(ce.id);
-			for (uint8_t c = 0; c < 3; ++c) {
-				uartSendChar(textId[c]);
-			}
-			uartSendChar(' ');
-
-			//Send data Byte
-			auto textLowByte = intToHexString(ce.dataLow);
-			for (uint8_t c = 0; c < textLowByte.length(); ++c) {
-				uartSendChar(textLowByte[c]);
-			}
-			uartSendChar(' ');
-			auto textHighByte = intToHexString(ce.dataHigh);
-			for (uint8_t c = 0; c < textHighByte.length(); ++c) {
-				uartSendChar(textHighByte[c]);
-			}
-			uartSendChar(10);
+			uartSendString("0x" + CANIdToHex(ce.id) + ' ' + CANWordToBytes(ce.dataLow) + ' ' + CANWordToBytes(ce.dataHigh) + '\n');
 		}
 	} else if (pendingCmd == "q" && viewIDMode) {				// Exit view ID mode
 		viewIDMode = false;

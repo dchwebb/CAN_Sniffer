@@ -41,6 +41,8 @@ private:
 	std::deque<CANEvent>::iterator viewID;
 	std::deque<CANEvent> CANEvents;
 	void DrawList(const CANEvent& event);
+	std::string CANWordToBytes(const uint32_t& w);
+	std::string CANIdToHex(const uint16_t& v);
 	void DrawId();
 	void DrawUI();
 	void QueueInc();

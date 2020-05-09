@@ -218,8 +218,8 @@ void InitCAN() {
 	CAN1->BTR |= CAN_BTR_TS1 & (3 << 16);			// number of time quanta in Time Segment 1
 	CAN1->BTR &= ~CAN_BTR_TS2;
 	CAN1->BTR |= CAN_BTR_TS2 & (3 << 20);			// number of time quanta in Time Segment 2
-	CAN1->BTR |= CAN_BTR_LBKM;					// Loopback mode for testing
-	//CAN1->BTR |= CAN_BTR_SILM;						// Silent Mode - do not initiate traffic on the bus
+	//CAN1->BTR |= CAN_BTR_LBKM;					// Loopback mode for testing
+	CAN1->BTR |= CAN_BTR_SILM;						// Silent Mode - do not initiate traffic on the bus
 
 	// CAN Settings
 	CAN1->MCR &= ~CAN_MCR_DBF;						// 0: CAN working during debug	1: CAN reception/transmission frozen during debug
@@ -327,3 +327,12 @@ void uartSendChar(char c) {
 	while ((USART1->SR & USART_SR_TXE) == 0);
 	USART1->DR = c;
 }
+
+void uartSendString(const std::string& s) {
+	for (char c : s) {
+		while ((USART1->SR & USART_SR_TXE) == 0);
+		USART1->DR = c;
+	}
+
+}
+
