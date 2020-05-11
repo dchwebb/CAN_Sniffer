@@ -9,13 +9,34 @@
 
 extern LCD lcd;
 
+// 0xCC0C0102
 struct CANEvent {
 	uint16_t id;
 	uint32_t dataLow;
 	uint32_t dataHigh;
 	uint32_t updated;
 	uint32_t hits;
+
+	uint8_t PID() const {
+		return (dataLow & 0xFF0000) >> 16;
+	}
+	uint8_t A() const {
+		return (dataLow & 0xFF000000) >> 24;
+	}
+	uint8_t B() const {
+		return (dataHigh & 0xFF);
+	}
+	uint8_t C() const {
+		return (dataHigh & 0xFF00) >> 8;
+	}
+	uint8_t D() const {
+		return (dataHigh & 0xFF0000) >> 16;
+	}
+	uint8_t AB() const {
+		return ((dataLow & 0xFF000000) >> 16) + (dataHigh & 0xFF);
+	}
 };
+
 
 // Holds raw CAN events as they fire interrupts
 struct rawCANEvent {

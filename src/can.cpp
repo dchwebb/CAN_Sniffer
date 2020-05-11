@@ -1,5 +1,24 @@
 #include <can.h>
 
+std::string floatToString(float f, bool smartFormat) {
+	std::string s;
+	std::stringstream ss;
+
+	if (smartFormat && f > 10000) {
+		ss << (int16_t)std::round(f / 100);
+		s = ss.str();
+		s.insert(s.length() - 1, ".");
+		s+= "k";
+	} else if (smartFormat && f > 1000) {
+		ss << (int16_t)std::round(f);
+		s = ss.str();
+	} else	{
+		ss << (int32_t)std::round(f * 10);
+		s = ss.str();
+		s.insert(s.length() - 1, ".");
+	}
+	return s;
+}
 
 std::string CANHandler::IntToString(const uint32_t& v) {
 	std::stringstream ss;
@@ -104,14 +123,36 @@ void CANHandler::DrawList(const CANEvent& event) {
 
 	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
 
-	lcd.DrawString(10, top, CANIdToHex(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	if (Mode == OBD2Mode::Info) {
+		// Find Item
+		auto pl = std::find_if(PIDLookup.begin(), PIDLookup.end(), [&] (PIDItem pl) { return pl.id == event.PID(); } );
+		if (pl != PIDLookup.end()) {
+			// If the found PID is in the lookup use the friendly name
+			lcd.DrawString(10, top, pl->name, &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
-	// Draw bytes as hex values in alternating colours
-	for (uint8_t c = 0; c < 8; ++c) {
-		lcd.DrawString(60 + (c * 29), top, HexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
+			// Calculate the value based on the formula
+			std::string calcVal;
+			if (pl->calc == PIDCalc::APercent) {
+				calcVal = floatToString((float)event.A() / 255.0, false) + "%";
+			} else if (pl->calc == PIDCalc::ABdiv4) {
+				calcVal = floatToString((float)event.AB() / 4.0, false) + " rpm";
+			}
+			lcd.DrawString(10, top, calcVal, &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+		} else {
+			lcd.DrawString(10, top, CANIdToHex(event.PID()), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+		}
+
+
+	} else {
+		lcd.DrawString(10, top, CANIdToHex(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+		// Draw bytes as hex values in alternating colours
+		for (uint8_t c = 0; c < 8; ++c) {
+			lcd.DrawString(60 + (c * 29), top, HexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
+		}
+
 	}
 }
-
 
 
 void CANHandler::DrawId() {
@@ -176,8 +217,8 @@ void CANHandler::OBD2Info(){
 		case OBD2State::Start :
 			CANUpdateFilters(0x700, 0x700);
 			OBD2AvailablePIDs.clear();
-			CANEvents.clear();
 			QueueSize = 0;
+			CANEvents.clear();
 			OBD2Cmd = 0xCC000102;
 			PIDCounter = 0;
 			PIDQueryErrors = 0;
@@ -205,6 +246,7 @@ void CANHandler::OBD2Info(){
 
 				// check if there are no further PID commands available
 				if ((idMask & 1) == 0) {
+					CANEvents.clear();
 					OBD2InfoState = OBD2State::List;
 				} else {
 					PIDCounter += 0x20;
@@ -302,9 +344,10 @@ bool CANHandler::ProcessCmd() {
 			std::stringstream ss;
 			ss << std::hex << pendingCmd;
 			ss >> id;
+			// If in sniffing mode display ID by CAN id; if in info mode use the PID code which
+			auto ce = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
+				{ return Mode == OBD2Mode::Info ? ce.id == 0x7E8 && ce.PID() == id : ce.id == id; } );
 
-			auto ce = CANEvents.begin();
-			ce = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == id; } );
 			if (ce != CANEvents.end()) {
 				viewIDMode = true;
 				viewID = ce;
