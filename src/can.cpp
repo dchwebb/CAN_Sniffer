@@ -171,50 +171,84 @@ void CANHandler::OBD2QueryMode(const std::string& s){
 }
 
 void CANHandler::OBD2Info(){
-	//CANEvents.clear();
-	//	CANUpdateFilters(OBD2Mode ? 0x700 : 0x0, OBD2Mode ? 0x700 : 0x0);
-
-
-	//enum class OBD2State { Start, PIDQuery00, PIDQuery20, PIDQuery40, PIDQuery60, Update };
 
 	switch (OBD2InfoState) {
 		case OBD2State::Start :
-			CANEvents.clear();
+			CANUpdateFilters(0x700, 0x700);
 			OBD2AvailablePIDs.clear();
+			CANEvents.clear();
+			QueueSize = 0;
 			OBD2Cmd = 0xCC000102;
-			OBD2InfoState = OBD2State::PIDQuery00;
+			PIDCounter = 0;
+			PIDQueryErrors = 0;
+			OBD2InfoState = OBD2State::PIDQuery;
 			break;
-		case OBD2State::PIDQuery00: {
-			// FIXME - dummy code to simulate back PIDs
-			CANEvents.push_back({0x7E8, 0x98004106, 0x0013C03B, SysTickVal, 0});
+
+		case OBD2State::PIDQuery: {
+
+			/*// FIXME - dummy code to simulate back PIDs
+			if (PIDCounter < 0x60)
+				CANEvents.push_back({0x7E8, (PIDCounter << 16) + 0x98004106, 0x0013C03B, SysTickVal, 0});
+			else
+				CANEvents.push_back({0x7E8, (PIDCounter << 16) + 0x98004106, 0x0012C03B, SysTickVal, 0});
+*/
 			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)			// check if data returned yet
-					{ return ce.id == 0x7E8 && (ce.dataLow & 0xFFFF00) == 0x004100; } );
+					{ return ce.id == 0x7E8 && (ce.dataLow & 0xFFFF00) == static_cast<uint32_t>((PIDCounter << 16) + 0x004100); } );
+
 			if (event != CANEvents.end()) {
+				// Create bit mask showing which PIDs car supports and add to available PID vector
 				uint32_t idMask = (event->dataLow & 0xFF000000) + ((event->dataHigh & 0xFF) << 16) + (event->dataHigh & 0xFF00) + ((event->dataHigh & 0xFF0000) >> 16);
 				for (uint8_t id = 0; id < 32; ++id) {
 					if (0x80000000 >> id & idMask)
-						OBD2AvailablePIDs.push_back({ id + 1 });
+						OBD2AvailablePIDs.push_back({ static_cast<uint16_t>(id + 1 + PIDCounter) });
 				}
-				OBD2InfoState = OBD2State::PIDQuery20;
+
+				// check if there are no further PID commands available
+				if ((idMask & 1) == 0) {
+					OBD2InfoState = OBD2State::List;
+				} else {
+					PIDCounter += 0x20;
+					OBD2Cmd = 0xCC000102 + (PIDCounter << 16);
+				}
+			} else {
+				PIDQueryErrors++;
+				if (PIDQueryErrors > 100)
+					OBD2InfoState = OBD2State::List;
 			}
+
 
 		}
 		break;
 
-		case OBD2State::PIDQuery20: {
+		case OBD2State::List: {
 			std::stringstream ss;
 			ss << "Available PIDs: ";
 			for (auto p : OBD2AvailablePIDs) {
 				ss << HexByte(p.pid) << ", ";
 			}
 			uartSendString(ss.str());
-			OBD2InfoState = OBD2State::PIDQuery40;
+			PIDCounter = 0;
+			OBD2InfoState = OBD2State::Update;
 		}
 		break;
 
-		default :
-			// do nothing
-			break;
+		case OBD2State::Update: {
+			// Cycle through available PIDs generating queries
+			PIDItem pid = PIDLookup[PIDCounter];
+
+			// Check the PID is available
+			auto avPid = std::find_if(OBD2AvailablePIDs.begin(), OBD2AvailablePIDs.end(), [&] (OBD2Pid avPid) { return avPid.pid == pid.id; } );
+			if (avPid != OBD2AvailablePIDs.end()) {
+				OBD2Cmd = 0xCC000102 + (pid.id << 16);
+			}
+
+			PIDCounter ++;
+			if (PIDCounter >= PIDLookup.size())
+				PIDCounter = 0;
+
+		}
+		break;
+
 	}
 
 

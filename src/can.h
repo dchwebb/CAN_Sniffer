@@ -25,11 +25,19 @@ struct rawCANEvent {
 };
 
 struct OBD2Pid {
-	uint32_t pid;
+	uint16_t pid;
+};
+
+enum class PIDCalc { AB, ABl40, APercent, ABdiv4 };
+
+struct PIDItem {
+	uint8_t id;
+	std::string name;
+	PIDCalc calc;
 };
 
 enum class OBD2Mode { Off, Query, Info };
-enum class OBD2State { Start, PIDQuery00, PIDQuery20, PIDQuery40, PIDQuery60, Update };
+enum class OBD2State { Start, PIDQuery, List, Update };
 
 class CANHandler {
 public:
@@ -51,6 +59,9 @@ private:
 	bool viewIDMode = false;
 	bool freeze = false;
 	OBD2State OBD2InfoState = OBD2State::Start;
+	uint16_t PIDCounter = 0;
+	uint16_t PIDQueryErrors = 0;
+
 	std::vector<CANEvent>::iterator viewID;
 	std::vector<CANEvent> CANEvents;
 	std::vector<OBD2Pid> OBD2AvailablePIDs;
@@ -65,5 +76,10 @@ private:
 	void DrawUI();
 	bool ProcessCmd();
 	void OBD2QueryMode(const std::string& s);
+
+	const std::vector<PIDItem> PIDLookup {
+		{0x4, "Engine load", PIDCalc::APercent },
+		{0xC, "RPM", PIDCalc::ABdiv4 }
+	};
 };
 
