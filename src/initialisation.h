@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <cstdlib>
 
 // Coverage profiler macros using timer 4 to count clock cycles / 10
 #define CP_ON		TIM9->EGR |= TIM_EGR_UG; TIM9->CR1 |= TIM_CR1_CEN; coverageTimer=0;
@@ -89,9 +90,10 @@ void InitSysTick();
 void InitLCDHardware();
 void InitDebounceTimer();
 void InitEncoders();
+void CANUpdateFilters(const uint16_t& id, const uint16_t& mask);
 void InitCAN();
-void SendCAN(uint16_t canID, uint32_t lowData, uint32_t highData);
+void SendCAN(const uint16_t& canID, const uint32_t& lowData, const uint32_t& highData, const bool& rtr = false);
 void InitUART();
-void uartSendChar(char c);
+void uartSendChar(const char& c);
 void uartSendString(const std::string& s);
 
