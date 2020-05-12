@@ -13,6 +13,8 @@
 #include <iomanip>
 #include <cstdlib>
 
+//#define TESTMODE
+
 // Coverage profiler macros using timer 4 to count clock cycles / 10
 #define CP_ON		TIM9->EGR |= TIM_EGR_UG; TIM9->CR1 |= TIM_CR1_CEN; coverageTimer=0;
 #define CP_OFF		TIM9->CR1 &= ~TIM_CR1_CEN;

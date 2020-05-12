@@ -37,48 +37,23 @@ int main(void) {
 	InitCAN();
 
 	while (1) {
+		// If in one of the query modes send the specified query command
 		if (can.Mode == OBD2Mode::Query) {
-			/*
-			SendCAN(0x7DF, 0xCC0C0102, 0xCCCCCCCC, false);			// Engine RPM
-			for (int t = 0; t < 80000; t++) {}
-
-			SendCAN(0x7DF, 0xCCCC0301, 0xCCCCCCCC, false);			// Request errors
-			for (int t = 0; t < 80000; t++) {}
-
-			SendCAN(0x7DF, 0xCC0F0102, 0xCCCCCCCC, false);			// Intake temperature
-			for (int t = 0; t < 80000; t++) {}
-			*/
-
 			SendCAN(0x7DF, can.OBD2Cmd, 0xCCCCCCCC, false);			// Generic command
 			for (int t = 0; t < 80000; t++) {}
 
-			can.ProcessCAN();
 		} else if (can.Mode == OBD2Mode::Info) {
-			SendCAN(0x7DF, can.OBD2Cmd, 0xCCCCCCCC, false);			// Intake temperature
+#ifndef TESTMODE
+			SendCAN(0x7DF, can.OBD2Cmd, 0xCCCCCCCC, false);			// command specified by can.OBD2Info
+#endif
 			for (int t = 0; t < 80000; t++) {}
 
 			can.OBD2Info();
-
-		} else if (can.sendTestData) {
-			// Send a stream of dummy data
-			dummyData++;
-			for (uint8_t idPrefix = 1; idPrefix < 8; ++idPrefix) {
-				for (uint8_t tempId = 0; tempId < 5; ++tempId) {
-					if (std::rand() % tempId == 1) {
-						SendCAN((idPrefix << 8) + (tempId + idPrefix), 0x89ABCDEF, dummyData * tempId);
-					}
-					for (int t = 0; t < 10000; t++) {}
-					can.ProcessCAN();
-				}
-			}
 		}
 
-
-
-
+		// Check if a UART command has been received
 		if (uartCmdRdy) {
 			std::stringstream ss;
-
 			for (uint8_t c = 0; c < 22; ++c) {
 				if (uartCmd[c] == 10) {
 					can.pendingCmd = ss.str();
@@ -87,12 +62,9 @@ int main(void) {
 				else
 					ss << uartCmd[c];
 			}
-
 			uartCmdRdy = false;
 		}
+
 		can.ProcessCAN();
-
-		//USART1->DR = 'B';			// Send a test character to the terminal
-
 	}
 }
