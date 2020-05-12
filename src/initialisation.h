@@ -12,6 +12,7 @@
 #include <cctype>
 #include <iomanip>
 #include <cstdlib>
+#include <functional>
 
 #define TESTMODE
 
