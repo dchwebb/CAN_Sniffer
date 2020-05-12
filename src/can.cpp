@@ -267,11 +267,25 @@ void CANHandler::OBD2Info(){
 		case OBD2State::PIDQuery: {
 
 #ifdef TESTMODE
-			// FIXME - dummy code to simulate back PIDs
-			CANEvents.push_back({0x7E8, (PIDCounter << 16) + 0x98004106, 0x0012C03B, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x28044103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x0C0C4103, 0x00000082, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0xA1104103, 0x00D4C3B2, SysTickVal, 0});
+			// FIXME - dummy code to simulate actual PIDs
+			CANEvents.push_back({0x7E8, 0x98004106, 0x0013C03B, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0xA0204106, 0x00010000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x00404106, 0x00000002, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x02014106, 0x0000E80E, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x6D044103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x41054103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x480B4103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x0C0C4104, 0x000000BE, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x000D4103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x370F4103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x03104104, 0x00000080, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x00114103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x04124103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x061C4103, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x001F4104, 0x00000031, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x00214104, 0x00000000, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x0B234104, 0x0000009A, SysTickVal, 0});
+			CANEvents.push_back({0x7E8, 0x004F4106, 0x00230000, SysTickVal, 0});
 #endif
 
 			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)			// check if data returned yet
@@ -386,8 +400,6 @@ bool CANHandler::ProcessCmd() {
 			std::stable_sort(CANEvents.begin(), CANEvents.end(), [&] (CANEvent c1, CANEvent c2) { return c1.id < c2.id; });
 		} else if (pendingCmd == "sn") {							// Sort by newly updated
 			std::stable_sort(CANEvents.begin(), CANEvents.end(), [&] (CANEvent c1, CANEvent c2) { return c1.updated > c2.updated; });
-		} else if (pendingCmd == "test") {							// Test Mode on/off
-			sendTestData = !sendTestData;
 		} else if (std::isdigit(pendingCmd[0])) {					// View ID
 			// view id mode - search to check we have event with matching ID and store iterator if so
 			uint16_t id = StringToOBD2(pendingCmd);

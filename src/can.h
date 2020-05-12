@@ -55,16 +55,15 @@ enum class OBD2State { Start, PIDQuery, List, Update };
 
 class CANHandler {
 public:
-	void ProcessCAN();
 	rawCANEvent Queue[CANQUEUESIZE];
 	uint8_t QueueRead = 0;
 	uint8_t QueueWrite = 0;
 	uint8_t QueueSize = 0;
 	std::string pendingCmd;
 	uint32_t OBD2Cmd;
-	bool sendTestData = false;
 	OBD2Mode Mode  = OBD2Mode::Off;
 
+	void ProcessCAN();
 	void OBD2Info();
 private:
 	uint8_t CANPos = 0;
