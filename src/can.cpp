@@ -4,7 +4,9 @@ std::string CANHandler::FloatToString(const float& f, const bool& smartFormat) {
 	std::string s;
 	std::stringstream ss;
 
-	if (smartFormat && f > 10000) {
+	if (f == 0) {
+		s = "0";
+	} else if (smartFormat && f > 10000) {
 		ss << (int16_t)std::round(f / 100);
 		s = ss.str();
 		s.insert(s.length() - 1, ".");
@@ -45,6 +47,24 @@ std::string CANHandler::HexByte(const uint16_t& v) {
 std::string CANHandler::CANIdToHex(const uint16_t& v) {
 	std::stringstream ss;
 	ss << std::uppercase << std::setfill('0') << std::setw(3) << std::hex << v;
+	return ss.str();
+}
+
+std::string CANHandler::DTCCode(const uint16_t& c) {
+	std::stringstream ss;
+	// First two bits of A are error type code
+	switch((0xC000 & c) >> 14) {
+		case 0b00: ss << "P"; break;
+		case 0b01: ss << "C"; break;
+		case 0b10: ss << "B"; break;
+		case 0b11: ss << "U"; break;
+	}
+	//	remaining bits are BCD
+	ss << std::hex << ((0x3000 & c) >> 12);
+	ss << std::hex << ((0x0F00 & c) >> 8);
+	ss << std::hex << ((0x00F0 & c) >> 4);
+	ss << std::hex << (0x000F & c);
+
 	return ss.str();
 }
 
@@ -125,6 +145,10 @@ void CANHandler::ProcessCAN() {
 }
 
 
+std::vector<PIDItem>::const_iterator CANHandler::GetPIDLookup(const uint8_t& service, const uint16_t& id) {
+	return std::find_if(PIDLookup.cbegin(), PIDLookup.cend(), [&] (PIDItem pi) { return pi.id == (service << 8) + id; } );
+}
+
 
 void CANHandler::DrawPids(OBD2Pid& obd2Item) {
 	// Draw list of SAE OBD2 standard diagnostics (also updates the available PIDs vector with current, min, max and raw values)
@@ -132,85 +156,54 @@ void CANHandler::DrawPids(OBD2Pid& obd2Item) {
 
 	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
 
-	// Find latest event data
+	// Find latest event data and update values in Available PIDs vector
 	bool dataFound = obd2Item.UpdateValues(CANEvents);
-/*
-	auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == 0x7E8 && ce.PID() == obd2Item.pid; } );
-	if (event != CANEvents.end()) {
-		obd2Item.rawData = event->ABCD();		// Store the latest raw data
-	}
-*/
-
 	lcd.DrawString(10, top, CANIdToHex((obd2Item.service << 8) + obd2Item.pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
 	// Check if we have lookup info for the OBD2 item
 	if (obd2Item.info != PIDLookup.end()) {
-		// If the found PID is in the lookup use the friendly name
+		// If the found PID is in the lookup use the friendly name and calculation lambda
 		lcd.DrawString(50, top, obd2Item.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 
-		// Calculate the value based on the formula
-		std::string dispVal;
-		if (!dataFound) {
-		//if (event == CANEvents.end()) {
-			dispVal = "";
-		} else {
-/*			if (obd2Item.info->calc == PIDCalc::A) {
-				obd2Item.calcVal = event->A();
-			} else if (obd2Item.info->calc == PIDCalc::AB) {
-				obd2Item.calcVal = event->AB();
-			} else {
-				obd2Item.calcVal = event->ABCD();
-			}
-
-			// capture minimum and maximum values
-			if (obd2Item.calcVal > obd2Item.valMax)	obd2Item.valMax = obd2Item.calcVal;
-			if (obd2Item.calcVal < obd2Item.valMin)	obd2Item.valMin = obd2Item.calcVal;*/
-
-			dispVal = obd2Item.info->calcn(obd2Item, obd2Item.calcVal);
-
-		}
-
-		lcd.DrawString(200, top, dispVal, &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	//} else if (event != CANEvents.end()) {
 	} else if (dataFound) {
-		// We have data but no lookup information - show bytes FIXME
-		//lcd.DrawString(50, top, HexByte(event->A()) + " " + HexByte(event->B()) + " " + HexByte(event->C()) + " " + HexByte(event->D()), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-		lcd.DrawString(50, top, HexToString(obd2Item.rawData, true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+		// We have data but no lookup information - show bytes
+		lcd.DrawString(50, top, HexToString(obd2Item.ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 	}
 }
+
 
 void CANHandler::DrawPid() {
 	// Draw detail for a single PID item
 	if (freeze) return;
 
+	viewPid->UpdateValues(CANEvents);
+
 	bool infoAv = (viewPid->info != PIDLookup.end());
 
-	lcd.DrawString(10, 5, "Diagnostic: " + (infoAv ? viewPid->info->name : "Unknown"), &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(10, 30, "Service: " + IntToString(viewPid->service) + " PID:" + HexByte(viewPid->pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, 5, "Service:" + IntToString(viewPid->service) + " PID:" + HexByte(viewPid->pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, 30, "Diagnostic:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 30, (infoAv ? viewPid->info->name : "Unknown"), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
-	lcd.DrawString(10, 55, "Current: " + (infoAv ? viewPid->info->calcn(*viewPid, viewPid->calcVal) : "?"), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	lcd.DrawString(10, 75, "Maximum: " + (infoAv ? viewPid->info->calcn(*viewPid, viewPid->valMax) : "?"), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	lcd.DrawString(10, 95, "Minimum: " + (infoAv ? viewPid->info->calcn(*viewPid, viewPid->valMin) : "?"), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	lcd.DrawString(10, 55, "Current:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(10, 75, "Maximum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(10, 95, "Minimum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	if (infoAv) {
+		lcd.DrawString(150, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(150, 95, viewPid->info->calcn(*viewPid, viewPid->valMin), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(150, 75, viewPid->info->calcn(*viewPid, viewPid->valMax), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	}
 
-	lcd.DrawString(10, 120, "Raw: " + HexToString(viewPid->rawData, true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-
-	/*
-
-	// Print out high low bytes in hex
-	lcd.DrawString(10, 30, "L:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	lcd.DrawString(40, 30, CANWordToBytes(viewEvent->dataLow), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	lcd.DrawString(163, 30, "(" + IntToString(viewEvent->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-
-	lcd.DrawString(10, 50, "H:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	lcd.DrawString(40, 50, CANWordToBytes(viewEvent->dataHigh), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	lcd.DrawString(163, 50, "(" + IntToString(viewEvent->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	lcd.DrawString(10, 120, "Raw ABCD:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 120, HexToString(viewPid->ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 
 	// print out last update time and number of hits
-	lcd.DrawString(10, 75, "Updated: " + IntToString(std::round((float)(SysTickVal - viewEvent->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-	lcd.DrawString(10, 95, "Hits: " + IntToString(viewEvent->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-*/
-
+	lcd.DrawString(10, 145, "Updated:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 145, IntToString(std::round((float)(SysTickVal - viewPid->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	lcd.DrawString(10, 168, "Hits:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 168, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
 }
+
 
 void CANHandler::DrawEvents(const CANEvent& event) {
 	// Draw list of CAN packets passively sniffed
@@ -283,10 +276,12 @@ void CANHandler::OBD2Info(){
 		case OBD2State::Start :
 			CANUpdateFilters(0x700, 0x700);
 			OBD2AvailablePIDs.clear();
+			OBD2AvailablePIDs.push_back({ 3, 0, GetPIDLookup(3, 0) });		// Add item for DTC errors
 			QueueSize = 0;
 			CANEvents.clear();
 			OBD2Cmd = 0xCC000102;
 			PIDCounter = 0;
+			ServiceCounter = 1;
 			PIDQueryErrors = 0;
 			OBD2InfoState = OBD2State::PIDQuery;
 			break;
@@ -295,6 +290,7 @@ void CANHandler::OBD2Info(){
 
 #ifdef TESTMODE
 			// FIXME - dummy code to simulate actual PIDs
+			CANEvents.push_back({0x7E8, 0xC4024306, 0x0001C015, SysTickVal, 0});
 			CANEvents.push_back({0x7E8, 0x98004106, 0x0013C03B, SysTickVal, 0});
 			CANEvents.push_back({0x7E8, 0xA0204106, 0x00010000, SysTickVal, 0});
 			CANEvents.push_back({0x7E8, 0x00404106, 0x00000002, SysTickVal, 0});
@@ -313,10 +309,12 @@ void CANHandler::OBD2Info(){
 			CANEvents.push_back({0x7E8, 0x00214104, 0x00000000, SysTickVal, 0});
 			CANEvents.push_back({0x7E8, 0x0B234104, 0x0000009A, SysTickVal, 0});
 			CANEvents.push_back({0x7E8, 0x004F4106, 0x00230000, SysTickVal, 0});
+
+			CANEvents.push_back({0x7E8, 0x54004906, 0x00000000, SysTickVal, 0});
 #endif
 
 			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)			// check if data returned yet
-					{ return ce.id == 0x7E8 && (ce.dataLow & 0xFFFF00) == static_cast<uint32_t>((PIDCounter << 16) + 0x004100); } );
+					{ return ce.id == 0x7E8 && (ce.dataLow & 0xFFFF00) == static_cast<uint32_t>((PIDCounter << 16) + (ServiceCounter << 8) + 0x004000); } );
 
 			if (event != CANEvents.end()) {
 				// Create bit mask showing which PIDs car supports and add to available PIDs (ignoring the last PID which is used where another page of PID commands is available)
@@ -324,17 +322,17 @@ void CANHandler::OBD2Info(){
 				for (uint8_t id = 0; id < 31; ++id) {
 					if (0x80000000 >> id & idMask) {
 						uint16_t pidId = id + 1 + PIDCounter;
-
-						// Get pointer to information item about PID if available
-						std::vector<PIDItem>::const_iterator lookup = std::find_if(PIDLookup.cbegin(), PIDLookup.cend(), [&] (PIDItem pi) { return pi.id == pidId; } );
-
-						OBD2AvailablePIDs.push_back({ 1, pidId, lookup });
+						OBD2AvailablePIDs.push_back({ ServiceCounter, pidId, GetPIDLookup(ServiceCounter, pidId) });
 					}
 				}
 
 				// check if there are no further PID commands available
-				if ((idMask & 1) == 0) {
+				if (ServiceCounter == 9) {
 					OBD2InfoState = OBD2State::List;
+				} else if ((idMask & 1) == 0) {
+					ServiceCounter = 9;
+					PIDCounter = 0;
+					OBD2Cmd = 0xCC000902 + (PIDCounter << 16);
 				} else {
 					PIDCounter += 0x20;
 					OBD2Cmd = 0xCC000102 + (PIDCounter << 16);
@@ -344,8 +342,6 @@ void CANHandler::OBD2Info(){
 				if (PIDQueryErrors > 100)
 					OBD2InfoState = OBD2State::List;
 			}
-
-
 		}
 		break;
 
@@ -364,8 +360,7 @@ void CANHandler::OBD2Info(){
 		case OBD2State::Update: {
 			// Cycle through available PIDs generating queries
 			OBD2Pid pid = OBD2AvailablePIDs[PIDCounter];
-			OBD2Cmd = 0xCC000102 + (pid.pid << 16);
-
+			OBD2Cmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
 			PIDCounter ++;
 			if (PIDCounter >= OBD2AvailablePIDs.size())
 				PIDCounter = 0;
