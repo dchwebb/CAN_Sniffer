@@ -390,6 +390,7 @@ bool CANHandler::ProcessCmd() {
 			OBD2QueryMode(pendingCmd);
 		}
 	} else if (pendingCmd == "info") {								// Switch to SAE standard diagnostic info mode
+		pageNo = 0;
 		if (Mode == OBD2Mode::Info) {
 			Mode = OBD2Mode::Off;
 		} else {
