@@ -22,7 +22,7 @@ std::string CANHandler::FloatToString(const float& f, const bool& smartFormat) {
 	return s;
 }
 
-std::string CANHandler::IntToString(const uint32_t& v) {
+std::string CANHandler::IntToString(const int32_t& v) {
 	std::stringstream ss;
 	ss << v;
 	return ss.str();
@@ -80,7 +80,7 @@ std::string CANHandler::CANWordToBytes(const uint32_t& w) {
 }
 
 // Process incoming CAN messages
-void CANHandler::ProcessCAN() {
+void CANHandler::ProcessQueue() {
 
 	while (QueueSize > 0) {
 		bool edited = false;
@@ -92,7 +92,7 @@ void CANHandler::ProcessCAN() {
 		if (!CANEvents.empty()) {
 
 			auto event = CANEvents.begin();
-			if (Mode == OBD2Mode::Info) {
+			if (Mode == OBDMode::Info) {
 				// Check if first three bytes match
 				event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
 						{ return ce.id == nextEvent.id && (ce.dataLow & 0xFFFFFF) == (nextEvent.dataLow & 0xFFFFFF); } );
@@ -118,24 +118,19 @@ void CANHandler::ProcessCAN() {
 
 	// Draw CAN events one at a time
 	if (CANEvents.size() > 0) {
-		if (viewIDMode) {
-			if (Mode == OBD2Mode::Info)
-				DrawPid();
-			else
+		if (Mode != OBDMode::Info) {
+			if (viewIDMode) {
 				DrawEvent();
-
-			DrawUI();
-		} else {
-			if (CANPos >= CANPAGEITEMS || (uint16_t)(CANPos + (pageNo * CANPAGEITEMS)) >= (uint16_t)(Mode == OBD2Mode::Info ? OBD2AvailablePIDs.size() : CANEvents.size())) {
-				CANPos = 0;
 				DrawUI();
 			} else {
-				uint16_t i = CANPos + (pageNo * CANPAGEITEMS);
-				if (Mode == OBD2Mode::Info)
-					DrawPids(OBD2AvailablePIDs[i]);
-				else
+				if (CANPos >= CANPAGEITEMS || (uint16_t)(CANPos + (pageNo * CANPAGEITEMS)) >= (uint16_t)CANEvents.size()) {
+					CANPos = 0;
+					DrawUI();
+				} else {
+					uint16_t i = CANPos + (pageNo * CANPAGEITEMS);
 					DrawEvents(CANEvents[i]);
-				CANPos++;
+					CANPos++;
+				}
 			}
 		}
 	} else {
@@ -150,7 +145,7 @@ std::vector<PIDItem>::const_iterator CANHandler::GetPIDLookup(const uint8_t& ser
 }
 
 
-void CANHandler::DrawPids(OBD2Pid& obd2Item) {
+void CANHandler::DrawPids(OBDPid& obd2Item) {
 	// Draw list of SAE OBD2 standard diagnostics (also updates the available PIDs vector with current, min, max and raw values)
 	if (freeze) return;
 
@@ -161,7 +156,7 @@ void CANHandler::DrawPids(OBD2Pid& obd2Item) {
 	lcd.DrawString(10, top, CANIdToHex((obd2Item.service << 8) + obd2Item.pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
 	// Check if we have lookup info for the OBD2 item
-	if (obd2Item.info != PIDLookup.end()) {
+	if (!viewRaw && obd2Item.info != PIDLookup.end()) {
 		// If the found PID is in the lookup use the friendly name and calculation lambda
 		lcd.DrawString(50, top, obd2Item.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
@@ -241,7 +236,7 @@ void CANHandler::DrawEvent() {
 }
 
 
-uint32_t StringToOBD2(const std::string s) {
+uint32_t StringToOBD(const std::string s) {
 	uint32_t id;
 	std::stringstream ss;
 	ss << std::hex << s;
@@ -249,7 +244,7 @@ uint32_t StringToOBD2(const std::string s) {
 	return id;
 }
 
-void CANHandler::OBD2QueryMode(const std::string& s){
+void CANHandler::OBDQueryMode(const std::string& s){
 	/* Send OBD2 SAE standard query:
 	 * byte 0: No. data bytes (set to 2)
 	 * byte 1: Service code (01 = show current data, 02 = freeze frame;
@@ -261,57 +256,36 @@ void CANHandler::OBD2QueryMode(const std::string& s){
 	// Passed in a service + PID code Eg o010C to return current value (01) of RPM (0C) - command is 0xCC0C0102 where 02 is number of bytes
 	if (s.length() == 3 || s.length() == 5) {
 		uint8_t b0 = s.length() == 3 ? 1 : 2;
-		uint8_t b1 = StringToOBD2(pendingCmd.substr(1, 2));
-		uint8_t b2 = s.length() == 5 ? StringToOBD2(pendingCmd.substr(3, 2)) : 0xCC;
-		OBD2Cmd = b0 + (b1 << 8) + (b2 << 16) + (0xCC << 24);
+		uint8_t b1 = StringToOBD(pendingCmd.substr(1, 2));
+		uint8_t b2 = s.length() == 5 ? StringToOBD(pendingCmd.substr(3, 2)) : 0xCC;
+		OBDCmd = b0 + (b1 << 8) + (b2 << 16) + (0xCC << 24);
 	} else {
-		OBD2Cmd = 0xCC0C0102;
+		OBDCmd = 0xCC0C0102;
 	}
 }
 
 
-void CANHandler::OBD2Info(){
+void CANHandler::ProcessOBD(){
 	//	State machine to query which PIDs are available and build a list; then enter update state which cycles through available PIDs querying latest data
-	switch (OBD2InfoState) {
-		case OBD2State::Start :
-			CANUpdateFilters(0x700, 0x700);
-			OBD2AvailablePIDs.clear();
-			OBD2AvailablePIDs.push_back({ 3, 0, GetPIDLookup(3, 0) });		// Add item for DTC errors
+	switch (OBDInfoState) {
+		case OBDState::Start :
+			CANUpdateFilters(0x700, 0x700);				// FIXME - should be 0x7E0 ?
+			OBDAvailablePIDs.clear();
+			OBDAvailablePIDs.push_back({ 3, 0, GetPIDLookup(3, 0) });		// Add item for DTC errors
 			QueueSize = 0;
 			CANEvents.clear();
-			OBD2Cmd = 0xCC000102;
+			OBDCmd = 0xCC000102;
 			PIDCounter = 0;
 			ServiceCounter = 1;
 			PIDQueryErrors = 0;
-			OBD2InfoState = OBD2State::PIDQuery;
-			break;
-
-		case OBD2State::PIDQuery: {
-
+			OBDInfoState = OBDState::PIDQuery;
 #ifdef TESTMODE
 			// FIXME - dummy code to simulate actual PIDs
-			CANEvents.push_back({0x7E8, 0xC4024306, 0x0001C015, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x98004106, 0x0013C03B, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0xA0204106, 0x00010000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x00404106, 0x00000002, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x02014106, 0x0000E80E, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x6D044103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x41054103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x480B4103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x0C0C4104, 0x000000BE, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x000D4103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x370F4103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x03104104, 0x00000080, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x00114103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x04124103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x061C4103, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x001F4104, 0x00000031, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x00214104, 0x00000000, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x0B234104, 0x0000009A, SysTickVal, 0});
-			CANEvents.push_back({0x7E8, 0x004F4106, 0x00230000, SysTickVal, 0});
-
-			CANEvents.push_back({0x7E8, 0x54004906, 0x00000000, SysTickVal, 0});
+			InjectTestData();
 #endif
+			break;
+
+		case OBDState::PIDQuery: {
 
 			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)			// check if data returned yet
 					{ return ce.id == 0x7E8 && (ce.dataLow & 0xFFFF00) == static_cast<uint32_t>((PIDCounter << 16) + (ServiceCounter << 8) + 0x004000); } );
@@ -322,55 +296,128 @@ void CANHandler::OBD2Info(){
 				for (uint8_t id = 0; id < 31; ++id) {
 					if (0x80000000 >> id & idMask) {
 						uint16_t pidId = id + 1 + PIDCounter;
-						OBD2AvailablePIDs.push_back({ ServiceCounter, pidId, GetPIDLookup(ServiceCounter, pidId) });
+						OBDAvailablePIDs.push_back({ ServiceCounter, pidId, GetPIDLookup(ServiceCounter, pidId) });
 					}
 				}
 
 				// check if there are no further PID commands available
 				if (ServiceCounter == 9) {
-					OBD2InfoState = OBD2State::List;
+					OBDInfoState = OBDState::List;
 				} else if ((idMask & 1) == 0) {
 					ServiceCounter = 9;
 					PIDCounter = 0;
-					OBD2Cmd = 0xCC000902 + (PIDCounter << 16);
+					OBDCmd = 0xCC000902 + (PIDCounter << 16);
 				} else {
 					PIDCounter += 0x20;
-					OBD2Cmd = 0xCC000102 + (PIDCounter << 16);
+					OBDCmd = 0xCC000102 + (PIDCounter << 16);
 				}
 			} else {
 				PIDQueryErrors++;
 				if (PIDQueryErrors > 100)
-					OBD2InfoState = OBD2State::List;
+					OBDInfoState = OBDState::List;
 			}
 		}
 		break;
 
-		case OBD2State::List: {
+		case OBDState::List: {
 			std::stringstream ss;
 			ss << "Available PIDs: ";
-			for (auto p : OBD2AvailablePIDs) {
-				ss << HexByte(p.pid) << ", ";
+			for (auto p : OBDAvailablePIDs) {
+				ss << IntToString(p.service) + HexByte(p.pid) << ", ";
 			}
 			uartSendString(ss.str() + '\n');
 			PIDCounter = 0;
-			OBD2InfoState = OBD2State::Update;
+			OBDInfoState = OBDState::Update;
 		}
 		break;
 
-		case OBD2State::Update: {
-			// Cycle through available PIDs generating queries
-			OBD2Pid pid = OBD2AvailablePIDs[PIDCounter];
-			OBD2Cmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
-			PIDCounter ++;
-			if (PIDCounter >= OBD2AvailablePIDs.size())
-				PIDCounter = 0;
+
+		case OBDState::Update: {
+			// Cycle through available PIDs generating queries, then waiting for response
+			OBDPid pid = OBDAvailablePIDs[PIDCounter];
+
+			if (OBDCmdPending) {
+				// Check if a response is available yet
+				ProcessQueue();
+				auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
+									{ return (ce.id & 0xF00) == 0x700 && ce.Service() == pid.service && (pid.service == 3 || ce.PID() == pid.pid); } );
+				// We have a response - check if single or multi frame and if necessary issue next frame instruction
+				if (event != CANEvents.end()) {
+					if (event->SingleFrame()) {
+						pid.UpdateValues(CANEvents);
+						OBDCmdPending = false;
+					} else {
+						/* https://en.wikipedia.org/wiki/ISO_15765-2
+						Request next frames - | 3 = flow control 0 = Continue To Send | 00 = remaining "frames" to be sent without flow control or delay | 01= <= 127, separation time in milliseconds
+						*/
+						OBDCmd = 0xCC010030;
+						SendCAN(event->id, OBDCmd, 0xCCCCCCCC);
+					}
+				} else {
+					PIDQueryErrors++;
+					if (PIDQueryErrors > 50) {
+						OBDCmdPending = false;
+					}
+				}
+			}
+
+			if (!OBDCmdPending) {
+				// Don't bother updating immutable data fields
+				while (pid.updateState == OBDUpdate::hasData && pid.info != PIDLookup.end() && pid.info->noUpdate) {
+					PIDCounter = (1 + PIDCounter) % OBDAvailablePIDs.size();
+					pid = OBDAvailablePIDs[PIDCounter];
+				}
+
+				OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
+				SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);
+				OBDCmdPending = true;
+				PIDQueryErrors = 0;
+
+				PIDCounter = (1 + PIDCounter) % OBDAvailablePIDs.size();
+
+#ifdef TESTMODE
+			// Randomise some data
+			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
+					{ return (ce.id & 0xF00) == 0x700 && ce.Service() == pid.service && (pid.service == 3 || ce.PID() == pid.pid); } );
+			if (event != CANEvents.end()) {
+				uint8_t a = (event->dataLow & 0xFF000000) >> 24;
+				if (a > 4 && a < 0xFE) {
+					a += (std::rand() % 3) - 1;
+					event->dataLow = (event->dataLow & 0x00FFFFFF) + (a << 24);
+				}
+			}
+			event->hits++;
+#endif
+
+			}
 		}
 		break;
 
 	}
+
+	// Draw CAN events one at a time
+	if (viewIDMode) {
+		DrawPid();
+		DrawUI();
+	} else {
+		if (CANPos >= CANPAGEITEMS || (uint16_t)(CANPos + (pageNo * CANPAGEITEMS)) >= (uint16_t)OBDAvailablePIDs.size()) {
+			CANPos = 0;
+			DrawUI();
+		} else {
+			uint16_t i = CANPos + (pageNo * CANPAGEITEMS);
+			DrawPids(OBDAvailablePIDs[i]);
+			CANPos++;
+		}
+	}
 }
 
-
+void CANHandler::SendCAN(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh) {
+#ifndef TESTMODE
+	CANCmd(canID, dataLow, dataHigh);
+#else
+	uartSendString("0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
+#endif
+}
 
 bool CANHandler::ProcessCmd() {
 	// Checks if a valid command has been sent via UART and processes accordingly
@@ -379,30 +426,32 @@ bool CANHandler::ProcessCmd() {
 		return false;
 
 	bool cmdValid = true;
-	uint16_t itemCount = Mode == OBD2Mode::Info ? OBD2AvailablePIDs.size() : CANEvents.size();
+	uint16_t itemCount = Mode == OBDMode::Info ? OBDAvailablePIDs.size() : CANEvents.size();
 	uint16_t pageCount = std::ceil((float)itemCount / CANPAGEITEMS);
 
 	if (pendingCmd == "f") {										// Freeze Display
 		freeze = !freeze;
-	} else if (pendingCmd[0] == 'o') {								// OBD2 Query mode
-		Mode = (Mode != OBD2Mode::Query || pendingCmd.length() > 1) ? OBD2Mode::Query : OBD2Mode::Off;
-		if (Mode == OBD2Mode::Query) {
-			OBD2QueryMode(pendingCmd);
+	} else if (pendingCmd[0] == 'o') {								// OBD Query mode
+		Mode = (Mode != OBDMode::Query || pendingCmd.length() > 1) ? OBDMode::Query : OBDMode::Off;
+		if (Mode == OBDMode::Query) {
+			OBDQueryMode(pendingCmd);
 		}
 	} else if (pendingCmd == "info") {								// Switch to SAE standard diagnostic info mode
 		pageNo = 0;
-		if (Mode == OBD2Mode::Info) {
-			Mode = OBD2Mode::Off;
+		if (Mode == OBDMode::Info) {
+			Mode = OBDMode::Off;
 		} else {
-			OBD2InfoState = OBD2State::Start;
-			Mode = OBD2Mode::Info;
-			OBD2Info();			// initiate info mode state machine
+			OBDInfoState = OBDState::Start;
+			Mode = OBDMode::Info;
+			ProcessOBD();			// initiate info mode state machine
 		}
+	} else if (Mode == OBDMode::Info && pendingCmd == "raw") {
+		viewRaw = !viewRaw;
 	} else if (pendingCmd == "dump") {								// Dump data to serial
 		for (auto ce : CANEvents) {
 			uartSendString("ID: 0x" + CANIdToHex(ce.id) + " L:" + CANWordToBytes(ce.dataLow) + " H:" + CANWordToBytes(ce.dataHigh) + " Hits:" + IntToString(ce.hits) + '\n');
 		}
-	} else if (pendingCmd == "raw") {								// Dump data to serial in raw format - eg for generating test scripts
+	} else if (pendingCmd == "dumpraw") {								// Dump data to serial in raw format - eg for generating test scripts
 		for (auto ce : CANEvents) {
 			uartSendString("0x" + CANIdToHex(ce.id) + ", 0x" + HexToString(ce.dataLow) + ", 0x" + HexToString(ce.dataHigh) + '\n');
 		}
@@ -425,11 +474,11 @@ bool CANHandler::ProcessCmd() {
 			std::stable_sort(CANEvents.begin(), CANEvents.end(), [&] (CANEvent c1, CANEvent c2) { return c1.updated > c2.updated; });
 		} else if (std::isdigit(pendingCmd[0])) {					// View ID
 			// view id mode - search to check we have event with matching ID and store iterator if so
-			uint16_t id = StringToOBD2(pendingCmd);
+			uint16_t id = StringToOBD(pendingCmd);
 
-			if (Mode == OBD2Mode::Info) {
-				auto pid = std::find_if(OBD2AvailablePIDs.begin(), OBD2AvailablePIDs.end(), [&] (OBD2Pid p)	{ return (p.service << 8) + p.pid == id; } );
-				if (pid != OBD2AvailablePIDs.end()) {
+			if (Mode == OBDMode::Info) {
+				auto pid = std::find_if(OBDAvailablePIDs.begin(), OBDAvailablePIDs.end(), [&] (OBDPid p)	{ return (p.service << 8) + p.pid == id; } );
+				if (pid != OBDAvailablePIDs.end()) {
 					viewIDMode = true;
 					viewPid = pid;
 				} else {
@@ -439,7 +488,7 @@ bool CANHandler::ProcessCmd() {
 			} else {
 				// If in sniffing mode display ID by CAN id; if in info mode use the PID code which
 				auto ce = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
-					{ return Mode == OBD2Mode::Query ? ce.id == 0x7E8 && ce.PID() == id : ce.id == id; } );
+					{ return Mode == OBDMode::Query ? ce.id == 0x7E8 && ce.PID() == id : ce.id == id; } );
 
 				if (ce != CANEvents.end()) {
 					viewIDMode = true;
@@ -464,7 +513,7 @@ void CANHandler::DrawUI() {
 	// Draw standard UI elements
 
 	bool cmdValid = ProcessCmd();
-	uint16_t itemCount = Mode == OBD2Mode::Info ? OBD2AvailablePIDs.size() : CANEvents.size();
+	uint16_t itemCount = Mode == OBDMode::Info ? OBDAvailablePIDs.size() : CANEvents.size();
 	uint16_t pageCount = std::ceil((float)itemCount / CANPAGEITEMS);
 
 	if (cmdValid and !freeze)
@@ -477,8 +526,8 @@ void CANHandler::DrawUI() {
 
 	if (pendingCmd != "") {
 		lcd.ColourFill(0, CANDrawHeight, lcd.width - 1, lcd.height - 1, LCD_BLACK);
-		if (Mode == OBD2Mode::Query && cmdValid) {
-			lcd.DrawString(10, CANDrawHeight, "OBD2: " + HexToString(OBD2Cmd), &lcd.Font_Large, LCD_GREEN, LCD_BLACK);
+		if (Mode == OBDMode::Query && cmdValid) {
+			lcd.DrawString(10, CANDrawHeight, "OBD: " + HexToString(OBDCmd), &lcd.Font_Large, LCD_GREEN, LCD_BLACK);
 		} else {
 			lcd.DrawString(10, CANDrawHeight, (viewIDMode ? "ID detail: " : "Cmd: ") + pendingCmd, &lcd.Font_Large, cmdValid ? LCD_GREEN : LCD_RED, LCD_BLACK);
 		}
@@ -487,3 +536,37 @@ void CANHandler::DrawUI() {
 	pendingCmd.clear();
 }
 
+void CANHandler::testInsert(const uint16_t& id, const uint32_t& dataLow, const uint32_t& dataHigh) {
+	static uint8_t cnt;
+	Queue[cnt] = {id, dataLow, dataHigh};
+	cnt++;
+	QueueSize = cnt;
+	QueueWrite = (QueueWrite + 1) % CANQUEUESIZE;
+}
+
+void CANHandler::InjectTestData() {
+		testInsert(0x7E8, 0x98004106, 0x0013C03B);
+		testInsert(0x7E8, 0xA0204106, 0x00010000);
+		testInsert(0x7E8, 0x00404106, 0x00000002);
+		testInsert(0x7E8, 0x54004906, 0x00000000);
+		testInsert(0x7E8, 0x02014106, 0x0000E80E);
+		testInsert(0x7E8, 0x6D044103, 0x00000000);
+		testInsert(0x7E8, 0x41054103, 0x00000000);
+		testInsert(0x7E8, 0x480B4103, 0x00000000);
+		testInsert(0x7E8, 0x0C0C4104, 0x000000BE);
+		testInsert(0x7E8, 0x000D4103, 0x00000000);
+		testInsert(0x7E8, 0x370F4103, 0x00000000);
+		testInsert(0x7E8, 0x03104104, 0x00000080);
+		testInsert(0x7E8, 0x00114103, 0x00000000);
+		testInsert(0x7E8, 0x04124103, 0x00000000);
+		testInsert(0x7E8, 0x061C4103, 0x00000000);
+		testInsert(0x7E8, 0x001F4104, 0x00000031);
+		testInsert(0x7E8, 0x00214104, 0x00000000);
+		testInsert(0x7E8, 0x0B234104, 0x0000009A);
+		testInsert(0x7E8, 0x004F4106, 0x00230000);
+		testInsert(0x7E8, 0xC4024306, 0x0001C015);		// DTC
+		testInsert(0x7E8, 0x02491410, 0x30465701);		// o0902 VIN
+		testInsert(0x7E8, 0x04491310, 0x39474201);		// o0904 Calibration ID
+		testInsert(0x7E8, 0x01064907, 0xCD8EFFF3);		// o0906 Calibration Verification Numbers (CVN)
+
+}

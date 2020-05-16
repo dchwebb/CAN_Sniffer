@@ -260,8 +260,7 @@ void InitCAN() {
 }
 
 
-
-void SendCAN(const uint16_t& canID, const uint32_t& lowData, const uint32_t& highData, const bool& rtr) {
+void CANCmd(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh, const bool& rtr) {
 	while ((CAN1->TSR & CAN_TSR_TME0) != CAN_TSR_TME0);
 
 	// Send CAN Data p1083
@@ -277,10 +276,9 @@ void SendCAN(const uint16_t& canID, const uint32_t& lowData, const uint32_t& hig
 	CAN1->sTxMailBox[0].TDTR = 0u;
 	CAN1->sTxMailBox[0].TDTR &= ~CAN_TDT0R_TGT;		// 0: Time stamp TIME[15:0] is not sent. 1: Time stamp TIME[15:0] value is sent in the last two data bytes of the 8-byte message
 	CAN1->sTxMailBox[0].TDTR |= (8 & CAN_TDT0R_DLC);// Data length code
-	CAN1->sTxMailBox[0].TDLR = lowData;				// CAN mailbox data low register
-	CAN1->sTxMailBox[0].TDHR = highData;			// CAN mailbox data high register
+	CAN1->sTxMailBox[0].TDLR = dataLow;				// CAN mailbox data low register
+	CAN1->sTxMailBox[0].TDHR = dataHigh;			// CAN mailbox data high register
 	CAN1->sTxMailBox[0].TIR |= CAN_TI0R_TXRQ;		// Set by software to request the transmission for the corresponding mailbox
-
 }
 
 

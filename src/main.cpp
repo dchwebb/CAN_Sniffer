@@ -38,17 +38,12 @@ int main(void) {
 
 	while (1) {
 		// If in one of the query modes send the specified query command
-		if (can.Mode == OBD2Mode::Query) {
-			SendCAN(0x7DF, can.OBD2Cmd, 0xCCCCCCCC, false);			// Generic command
+		if (can.Mode == OBDMode::Query) {
+			can.SendCAN(0x7DF, can.OBDCmd, 0xCCCCCCCC);			// Generic command
 			for (int t = 0; t < 80000; t++) {}
-
-		} else if (can.Mode == OBD2Mode::Info) {
-#ifndef TESTMODE
-			SendCAN(0x7DF, can.OBD2Cmd, 0xCCCCCCCC, false);			// command specified by can.OBD2Info
-#endif
-			for (int t = 0; t < 80000; t++) {}
-
-			can.OBD2Info();
+		} else if (can.Mode == OBDMode::Info) {
+			can.ProcessOBD();
+			for (int t = 0; t < 10000; t++) {}
 		}
 
 		// Check if a UART command has been received
@@ -65,6 +60,6 @@ int main(void) {
 			uartCmdRdy = false;
 		}
 
-		can.ProcessCAN();
+		can.ProcessQueue();
 	}
 }
