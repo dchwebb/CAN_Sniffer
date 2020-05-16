@@ -136,132 +136,6 @@ void CANHandler::ProcessQueue() {
 	} else {
 		DrawUI();
 	}
-
-}
-
-
-std::vector<PIDItem>::const_iterator CANHandler::GetPIDLookup(const uint8_t& service, const uint16_t& id) {
-	return std::find_if(PIDLookup.cbegin(), PIDLookup.cend(), [&] (PIDItem pi) { return pi.id == (service << 8) + id; } );
-}
-
-
-void CANHandler::DrawPids(OBDPid& obd2Item) {
-	// Draw list of SAE OBD2 standard diagnostics (also updates the available PIDs vector with current, min, max and raw values)
-	if (freeze) return;
-
-	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
-
-	// Find latest event data and update values in Available PIDs vector
-	bool dataFound = obd2Item.UpdateValues(CANEvents);
-	lcd.DrawString(10, top, CANIdToHex((obd2Item.service << 8) + obd2Item.pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
-
-	// Check if we have lookup info for the OBD2 item
-	if (!viewRaw && obd2Item.info != PIDLookup.end()) {
-		// If the found PID is in the lookup use the friendly name and calculation lambda
-		lcd.DrawString(50, top, obd2Item.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-
-	} else if (dataFound) {
-		// We have data but no lookup information - show bytes
-		lcd.DrawString(50, top, HexToString(obd2Item.ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	}
-}
-
-
-void CANHandler::DrawPid() {
-	// Draw detail for a single PID item
-	if (freeze) return;
-
-	viewPid->UpdateValues(CANEvents);
-
-	bool infoAv = (viewPid->info != PIDLookup.end());
-
-	lcd.DrawString(10, 5, "Service:" + IntToString(viewPid->service) + " PID:" + HexByte(viewPid->pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
-	lcd.DrawString(10, 30, "Diagnostic:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 30, (infoAv ? viewPid->info->name : "Unknown"), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
-
-	lcd.DrawString(10, 55, "Current:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(10, 75, "Maximum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(10, 95, "Minimum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	if (infoAv) {
-		lcd.DrawString(150, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-		lcd.DrawString(150, 95, viewPid->info->calcn(*viewPid, viewPid->valMin), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-		lcd.DrawString(150, 75, viewPid->info->calcn(*viewPid, viewPid->valMax), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	}
-
-	lcd.DrawString(10, 120, "Raw ABCD:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 120, HexToString(viewPid->ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-
-	// print out last update time and number of hits
-	lcd.DrawString(10, 145, "Updated:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 145, IntToString(std::round((float)(SysTickVal - viewPid->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-	lcd.DrawString(10, 168, "Hits:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 168, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-}
-
-
-void CANHandler::DrawEvents(const CANEvent& event) {
-	// Draw list of CAN packets passively sniffed
-	if (freeze) return;
-
-	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
-
-	lcd.DrawString(10, top, CANIdToHex(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
-
-	// Draw bytes as hex values in alternating colours
-	for (uint8_t c = 0; c < 8; ++c) {
-		lcd.DrawString(60 + (c * 29), top, HexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
-	}
-}
-
-
-void CANHandler::DrawEvent() {
-	// Draw detail for a single sniffed CAN packet
-	if (freeze) return;
-
-	lcd.DrawString(10, 5, "ID: 0x" + CANIdToHex(viewEvent->id) + " (" + IntToString(viewEvent->id) + ")", &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
-
-	// Print out high low bytes in hex
-	lcd.DrawString(10, 30, "L:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	lcd.DrawString(40, 30, CANWordToBytes(viewEvent->dataLow), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	lcd.DrawString(163, 30, "(" + IntToString(viewEvent->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-
-	lcd.DrawString(10, 50, "H:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-	lcd.DrawString(40, 50, CANWordToBytes(viewEvent->dataHigh), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-	lcd.DrawString(163, 50, "(" + IntToString(viewEvent->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
-
-	// print out last update time and number of hits
-	lcd.DrawString(10, 75, "Updated: " + IntToString(std::round((float)(SysTickVal - viewEvent->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-	lcd.DrawString(10, 95, "Hits: " + IntToString(viewEvent->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-}
-
-
-uint32_t StringToOBD(const std::string s) {
-	uint32_t id;
-	std::stringstream ss;
-	ss << std::hex << s;
-	ss >> id;
-	return id;
-}
-
-void CANHandler::OBDQueryMode(const std::string& s){
-	/* Send OBD2 SAE standard query:
-	 * byte 0: No. data bytes (set to 2)
-	 * byte 1: Service code (01 = show current data, 02 = freeze frame;
-	 * byte 2: PID code	(e.g.: 0C = Engine RPM)
-	 * bytes 3 - 7: not used (ISO 15765-2 suggests 0xCC)
-	 * eg 0xCC050102 0xCCCCCCCC
-	*/
-
-	// Passed in a service + PID code Eg o010C to return current value (01) of RPM (0C) - command is 0xCC0C0102 where 02 is number of bytes
-	if (s.length() == 3 || s.length() == 5) {
-		uint8_t b0 = s.length() == 3 ? 1 : 2;
-		uint8_t b1 = StringToOBD(pendingCmd.substr(1, 2));
-		uint8_t b2 = s.length() == 5 ? StringToOBD(pendingCmd.substr(3, 2)) : 0xCC;
-		OBDCmd = b0 + (b1 << 8) + (b2 << 16) + (0xCC << 24);
-	} else {
-		OBDCmd = 0xCC0C0102;
-	}
 }
 
 
@@ -411,6 +285,133 @@ void CANHandler::ProcessOBD(){
 	}
 }
 
+
+std::vector<PIDItem>::const_iterator CANHandler::GetPIDLookup(const uint8_t& service, const uint16_t& id) {
+	return std::find_if(PIDLookup.cbegin(), PIDLookup.cend(), [&] (PIDItem pi) { return pi.id == (service << 8) + id; } );
+}
+
+
+void CANHandler::DrawPids(OBDPid& obd2Item) {
+	// Draw list of SAE OBD2 standard diagnostics (also updates the available PIDs vector with current, min, max and raw values)
+	if (freeze) return;
+
+	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
+
+	// Find latest event data and update values in Available PIDs vector
+	bool dataFound = obd2Item.UpdateValues(CANEvents);
+	lcd.DrawString(10, top, CANIdToHex((obd2Item.service << 8) + obd2Item.pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+	// Check if we have lookup info for the OBD2 item
+	if (!viewRaw && obd2Item.info != PIDLookup.end()) {
+		// If the found PID is in the lookup use the friendly name and calculation lambda
+		lcd.DrawString(50, top, obd2Item.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+
+	} else if (dataFound) {
+		// We have data but no lookup information - show bytes
+		lcd.DrawString(50, top, HexToString(obd2Item.ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	}
+}
+
+
+void CANHandler::DrawPid() {
+	// Draw detail for a single PID item
+	if (freeze) return;
+
+	viewPid->UpdateValues(CANEvents);
+
+	bool infoAv = (viewPid->info != PIDLookup.end());
+
+	lcd.DrawString(10, 5, "Service:" + IntToString(viewPid->service) + " PID:" + HexByte(viewPid->pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, 30, "Diagnostic:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 30, (infoAv ? viewPid->info->name : "Unknown"), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+	lcd.DrawString(10, 55, "Current:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(10, 75, "Maximum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(10, 95, "Minimum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	if (infoAv) {
+		lcd.DrawString(150, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(150, 95, viewPid->info->calcn(*viewPid, viewPid->valMin), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(150, 75, viewPid->info->calcn(*viewPid, viewPid->valMax), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	}
+
+	lcd.DrawString(10, 120, "Raw ABCD:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 120, HexToString(viewPid->ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+
+	// print out last update time and number of hits
+	lcd.DrawString(10, 145, "Updated:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 145, IntToString(std::round((float)(SysTickVal - viewPid->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	lcd.DrawString(10, 168, "Hits:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(150, 168, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+}
+
+
+void CANHandler::DrawEvents(const CANEvent& event) {
+	// Draw list of CAN packets passively sniffed
+	if (freeze) return;
+
+	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
+
+	lcd.DrawString(10, top, CANIdToHex(event.id), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+	// Draw bytes as hex values in alternating colours
+	for (uint8_t c = 0; c < 8; ++c) {
+		lcd.DrawString(60 + (c * 29), top, HexByte(((c < 4 ? event.dataLow : event.dataHigh) >> (8 * (c % 4))) & 0xFF), &lcd.Font_Large, (c % 2 ? LCD_YELLOW : LCD_ORANGE), LCD_BLACK);
+	}
+}
+
+
+void CANHandler::DrawEvent() {
+	// Draw detail for a single sniffed CAN packet
+	if (freeze) return;
+
+	lcd.DrawString(10, 5, "ID: 0x" + CANIdToHex(viewEvent->id) + " (" + IntToString(viewEvent->id) + ")", &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+
+	// Print out high low bytes in hex
+	lcd.DrawString(10, 30, "L:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	lcd.DrawString(40, 30, CANWordToBytes(viewEvent->dataLow), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	lcd.DrawString(163, 30, "(" + IntToString(viewEvent->dataLow) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+
+	lcd.DrawString(10, 50, "H:", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	lcd.DrawString(40, 50, CANWordToBytes(viewEvent->dataHigh), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+	lcd.DrawString(163, 50, "(" + IntToString(viewEvent->dataHigh) + ")", &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+
+	// print out last update time and number of hits
+	lcd.DrawString(10, 75, "Updated: " + IntToString(std::round((float)(SysTickVal - viewEvent->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	lcd.DrawString(10, 95, "Hits: " + IntToString(viewEvent->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+}
+
+
+uint32_t StringToOBD(const std::string s) {
+	uint32_t id;
+	std::stringstream ss;
+	ss << std::hex << s;
+	ss >> id;
+	return id;
+}
+
+void CANHandler::OBDQueryMode(const std::string& s){
+	/* Send OBD2 SAE standard query:
+	 * byte 0: No. data bytes (set to 2)
+	 * byte 1: Service code (01 = show current data, 02 = freeze frame;
+	 * byte 2: PID code	(e.g.: 0C = Engine RPM)
+	 * bytes 3 - 7: not used (ISO 15765-2 suggests 0xCC)
+	 * eg 0xCC050102 0xCCCCCCCC
+	*/
+
+	// Passed in a service + PID code Eg o010C to return current value (01) of RPM (0C) - command is 0xCC0C0102 where 02 is number of bytes
+	if (s.length() == 3 || s.length() == 5) {
+		uint8_t b0 = s.length() == 3 ? 1 : 2;
+		uint8_t b1 = StringToOBD(pendingCmd.substr(1, 2));
+		uint8_t b2 = s.length() == 5 ? StringToOBD(pendingCmd.substr(3, 2)) : 0xCC;
+		OBDCmd = b0 + (b1 << 8) + (b2 << 16) + (0xCC << 24);
+	} else {
+		OBDCmd = 0xCC0C0102;
+	}
+}
+
+
+
 void CANHandler::SendCAN(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh) {
 #ifndef TESTMODE
 	CANCmd(canID, dataLow, dataHigh);
@@ -418,6 +419,7 @@ void CANHandler::SendCAN(const uint16_t& canID, const uint32_t& dataLow, const u
 	uartSendString("0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
 #endif
 }
+
 
 bool CANHandler::ProcessCmd() {
 	// Checks if a valid command has been sent via UART and processes accordingly
