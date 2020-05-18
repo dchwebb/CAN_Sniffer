@@ -56,15 +56,6 @@ int main(void) {
 		for (int t = 0; t < 800000; t++) {}
 		int x = 0;*/
 
-		// If in one of the query modes send the specified query command
-		if (can.Mode == OBDMode::Query) {
-			can.SendCAN(0x7DF, can.OBDCmd, 0xCCCCCCCC);			// Generic command
-			for (int t = 0; t < 80000; t++) {}
-		} else if (can.Mode == OBDMode::Info) {
-			can.ProcessOBD();
-			for (int t = 0; t < 10000; t++) {}
-		}
-
 		// Check if a UART command has been received
 		if (uartCmdRdy) {
 			std::stringstream ss;
@@ -79,7 +70,18 @@ int main(void) {
 			uartCmdRdy = false;
 		}
 
-		can.ProcessQueue();
+		// If in one of the query modes send the specified query command
+		if (can.Mode == OBDMode::Info) {
+			can.ProcessOBD();
+			for (int t = 0; t < 10000; t++) {}
+		} else {
+			if (can.Mode == OBDMode::Query) {
+				can.SendCAN(0x7DF, can.OBDCmd, 0xCCCCCCCC);			// Generic command
+				for (int t = 0; t < 80000; t++) {}
+			}
+			can.ProcessQueue();
+		}
+
 
 	}
 

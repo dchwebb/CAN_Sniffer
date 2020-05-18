@@ -160,6 +160,7 @@ void CANHandler::ProcessOBD(){
 			break;
 
 		case OBDState::PIDQuery: {
+			ProcessQueue();
 
 			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)			// check if data returned yet
 					{ return ce.id == 0x7E8 && (ce.dataLow & 0xFFFF00) == static_cast<uint32_t>((PIDCounter << 16) + (ServiceCounter << 8) + 0x004000); } );
@@ -208,18 +209,33 @@ void CANHandler::ProcessOBD(){
 
 		case OBDState::Update: {
 			// Cycle through available PIDs generating queries, then waiting for response
-			OBDPid pid = OBDAvPIDs[PIDCounter];
 
-			if (OBDCmdPending) {
-				// Check if a response is available yet
+			OBDPid& pid = OBDAvPIDs[PIDCounter];
+
+			OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
+			uint8_t queueSize = QueueSize;
+			SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);
+			PIDQueryErrors = 0;
+			RandTestData(pid); 		// Randomise some data for display update testing
+
+			// Wait until a response is available or time-outs
+			uint32_t waitCount = 0;
+			while (waitCount < 100000 && queueSize == QueueSize) {
+				waitCount++;
+			}
+#ifdef TESTMODE
+			waitCount = 0;
+#endif
+			// Response received
+			if (waitCount < 100000) {
 				ProcessQueue();
 				auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
-									{ return (ce.id & 0xF00) == 0x700 && ce.Service() == pid.service && (pid.service == 3 || ce.PID() == pid.pid); } );
-				// We have a response - check if single or multi frame and if necessary issue next frame instruction
+						{ return (ce.id & 0xF00) == 0x700 && ce.Service() == pid.service && (pid.service == 3 || ce.PID() == pid.pid); } );
+
+				// Check if single or multi frame and if necessary issue next frame instruction
 				if (event != CANEvents.end()) {
 					if (event->SingleFrame()) {
 						pid.UpdateValues(CANEvents);
-						OBDCmdPending = false;
 					} else {
 						/* https://en.wikipedia.org/wiki/ISO_15765-2
 						Request next frames - | 3 = flow control 0 = Continue To Send | 00 = remaining "frames" to be sent without flow control or delay | 01= <= 127, separation time in milliseconds
@@ -227,48 +243,57 @@ void CANHandler::ProcessOBD(){
 						*/
 						OBDCmd = 0xCC010030;
 						SendCAN(0x7E0, OBDCmd, 0xCCCCCCCC);
-						OBDCmdPending = false;
-					}
-				} else {
-					PIDQueryErrors++;
-					if (PIDQueryErrors > 50) {
-						OBDCmdPending = false;
-					}
-				}
 
-				// PID processed so increment counter
-				if (!OBDCmdPending) {
-					PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
-				}
-			}
 
-			if (!OBDCmdPending) {
+						// Check how many additional frames to expect - there will be 6 in the first packet and up to 7 in remaining packets
+						uint8_t frameCount = std::ceil((float)event->ByteCount() - 6.0f) / 7.0f;
 
-				// Don't bother updating immutable data fields
-				while (OBDAvPIDs[PIDCounter].updateState == OBDUpdate::hasData && OBDAvPIDs[PIDCounter].info != PIDLookup.end() && OBDAvPIDs[PIDCounter].info->noUpdate) {
-					PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
-				}
-				pid = OBDAvPIDs[PIDCounter];
+						waitCount = 0;
+						pid.multiFrameData.clear();
 
-				OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
-				SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);
-				OBDCmdPending = true;
-				PIDQueryErrors = 0;
+						// Add bytes from first frame to multiFrameData vector
+						pid.multiFrameData.push_back((event->dataHigh >> 0) & 0xFF);		// FIXME - for VIN this is '01' - not part of VIN string so maybe part of header?
+						pid.multiFrameData.push_back((event->dataHigh >> 8) & 0xFF);
+						pid.multiFrameData.push_back((event->dataHigh >> 16) & 0xFF);
+						pid.multiFrameData.push_back((event->dataHigh >> 24) & 0xFF);
+
 
 #ifdef TESTMODE
-			// Randomise some data
-			auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
-					{ return (ce.id & 0xF00) == 0x700 && ce.Service() == pid.service && (pid.service == 3 || ce.PID() == pid.pid); } );
-			if (event != CANEvents.end()) {
-				uint8_t a = (event->dataLow & 0xFF000000) >> 24;
-				if (a > 4 && a < 0xFE) {
-					a += (std::rand() % 3) - 1;
-					event->dataLow = (event->dataLow & 0x00FFFFFF) + (a << 24);
-				}
-			}
-			event->hits++;
+						testInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
+						testInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
 #endif
 
+						while (frameCount > 0 && waitCount < 100000) {
+							if (QueueSize > 0) {
+								rawCANEvent nextEvent = Queue[QueueRead];
+								QueueSize--;
+								QueueRead = (QueueRead + 1) % CANQUEUESIZE;
+
+								// Check if continuation frame
+								if ((nextEvent.dataLow & 0xF0) == 0x20) {
+									pid.multiFrameData.push_back((nextEvent.dataLow >> 8) & 0xFF);
+									pid.multiFrameData.push_back((nextEvent.dataLow >> 16) & 0xFF);
+									pid.multiFrameData.push_back((nextEvent.dataLow >> 24) & 0xFF);
+									pid.multiFrameData.push_back((nextEvent.dataHigh >> 0) & 0xFF);
+									pid.multiFrameData.push_back((nextEvent.dataHigh >> 8) & 0xFF);
+									pid.multiFrameData.push_back((nextEvent.dataHigh >> 16) & 0xFF);
+									pid.multiFrameData.push_back((nextEvent.dataHigh >> 24) & 0xFF);
+									frameCount--;
+								}
+								waitCount = 0;
+							} else {
+								waitCount++;
+							}
+						}
+
+					}
+				}
+			}
+
+			// PID processed so increment counter, skipping immutable items that have already been updated
+			PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
+			while (OBDAvPIDs[PIDCounter].updateState == OBDUpdate::hasData && OBDAvPIDs[PIDCounter].info != PIDLookup.end() && OBDAvPIDs[PIDCounter].info->noUpdate) {
+				PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
 			}
 		}
 		break;
@@ -421,9 +446,9 @@ void CANHandler::OBDQueryMode(const std::string& s){
 void CANHandler::SendCAN(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh) {
 #ifndef TESTMODE
 	CANCmd(canID, dataLow, dataHigh);
-	uartSendString("sent: 0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
+//	uartSendString("sent: 0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
 #else
-	uartSendString("0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
+//	uartSendString("0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
 #endif
 }
 
@@ -549,10 +574,8 @@ void CANHandler::DrawUI() {
 }
 
 void CANHandler::testInsert(const uint16_t& id, const uint32_t& dataLow, const uint32_t& dataHigh) {
-	static uint8_t cnt;
-	Queue[cnt] = {id, dataLow, dataHigh};
-	cnt++;
-	QueueSize = cnt;
+	Queue[QueueWrite] = {id, dataLow, dataHigh};
+	QueueSize++;
 	QueueWrite = (QueueWrite + 1) % CANQUEUESIZE;
 }
 
@@ -583,4 +606,20 @@ void CANHandler::InjectTestData() {
 		testInsert(0x7E8, 0x04491310, 0x39474201);		// o0904 Calibration ID
 		testInsert(0x7E8, 0x01064907, 0xCD8EFFF3);		// o0906 Calibration Verification Numbers (CVN)
 
+}
+
+void CANHandler::RandTestData(const OBDPid& pid) {
+#ifdef TESTMODE
+	// Randomise some data
+	auto event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
+			{ return (ce.id & 0xF00) == 0x700 && ce.Service() == pid.service && (pid.service == 3 || ce.PID() == pid.pid); } );
+	if (event != CANEvents.end()) {
+		uint8_t a = (event->dataLow & 0xFF000000) >> 24;
+		if (a > 4 && a < 0xFE) {
+			a += (std::rand() % 3) - 1;
+			event->dataLow = (event->dataLow & 0x00FFFFFF) + (a << 24);
+		}
+	}
+	event->hits++;
+#endif
 }

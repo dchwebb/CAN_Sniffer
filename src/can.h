@@ -22,6 +22,7 @@ struct CANEvent {
 	0x7E8, 0x02491410, 0x30465701	Multi frame packet 02=PID; 49=service; 014=size; 1=first frame of multi frame packet
 	*/
 	bool SingleFrame() const { return ((dataLow & 0xF0) >> 4) == 0; }
+	uint8_t ByteCount() const { return ((dataLow & 0xFF00) >> 8) + ((dataLow & 0x0F) << 8); }		// NB currently only works for multi-frame packets
 
 	// PID may be in different positions for single frame (0 in 0xF0) and multi frame packets (1-3 in 0xF0)
 	uint8_t PID() const { return SingleFrame() ? ((dataLow & 0xFF0000) >> 16) : ((dataLow & 0xFF000000) >> 24);	}
@@ -74,6 +75,7 @@ struct OBDPid {
 	uint32_t updated;
 	uint32_t hits;
 	OBDUpdate updateState = OBDUpdate::noData;
+	std::vector<uint8_t> multiFrameData;
 
 	uint32_t ABCD() const { return (dataLow & 0xFF000000) + ((dataHigh & 0xFF) << 16) + (dataHigh & 0xFF00) + ((dataHigh & 0xFF0000) >> 16); }
 
@@ -154,6 +156,7 @@ private:
 	std::vector<PIDItem>::const_iterator GetPIDLookup(const uint8_t& service, const uint16_t& id);
 	void InjectTestData();
 	void testInsert(const uint16_t& id, const uint32_t& dataLow, const uint32_t& dataHigh);
+	void RandTestData(const OBDPid& pid);
 
 	std::string FloatToString(const float& f, const bool& smartFormat);
 	std::string CANWordToBytes(const uint32_t& w);
@@ -163,9 +166,8 @@ private:
 	std::string HexToString(const uint32_t& v, const bool& spaces = false);
 	std::string HexByte(const uint16_t& v);
 
-
 	const std::vector<PIDItem> PIDLookup {
-		{0x104, false, "Engine load",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55, false) + "%  "; } },
+		{0x104, false, "Engine load",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)o.calcVal / 2.55, false) + "%  "; } },
 		{0x105, false, "Coolant temp",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },
 		{0x10B, false, "Manifold Prs",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " kPa  "; } },
 		{0x10C, false, "RPM",			PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v / 4.0) + " rpm   "; } },
@@ -179,7 +181,8 @@ private:
 		{0x121, false, "Dist w Error",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " km"; } },
 		{0x123, false, "Fuel Rail Pr",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v * 10) + " kPa   "; } },
 		{0x14f, false, "Misc max val",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
-		{0x300, false, "DTC Codes",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return DTCCode((v & 0xFFFF0000) >> 16) + " " + DTCCode(v & 0xFFFF); } }
+		{0x300, false, "DTC Codes",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return DTCCode((v & 0xFFFF0000) >> 16) + " " + DTCCode(v & 0xFFFF); } },
+		{0x902, true,  "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return std::string(o.multiFrameData.cbegin(), o.multiFrameData.cend()); } }
 	};
 };
 
