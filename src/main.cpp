@@ -37,7 +37,6 @@ int main(void) {
 	lcd.Init();								// Initialize ILI9341 LCD
 	InitCAN();
 
-	CANUpdateFilters(0x700, 0x700);
 	while (1) {
 
 /*		uint8_t q = can.QueueSize;

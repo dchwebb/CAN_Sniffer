@@ -106,6 +106,12 @@ struct OBDPid {
 		}
 		return true;
 	}
+
+	void AddToMultiFrame(const uint32_t& d, uint8_t start) {
+		for (; start < 4; ++start) {
+			multiFrameData.push_back((d >> (start * 8)) & 0xFF);
+		}
+	}
 };
 
 enum class OBDMode { Off, Query, Info };
@@ -167,7 +173,7 @@ private:
 	std::string HexByte(const uint16_t& v);
 
 	const std::vector<PIDItem> PIDLookup {
-		{0x104, false, "Engine load",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)o.calcVal / 2.55, false) + "%  "; } },
+		{0x104, false, "Engine load",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55, false) + "%  "; } },
 		{0x105, false, "Coolant temp",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },
 		{0x10B, false, "Manifold Prs",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " kPa  "; } },
 		{0x10C, false, "RPM",			PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v / 4.0) + " rpm   "; } },
@@ -182,7 +188,8 @@ private:
 		{0x123, false, "Fuel Rail Pr",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v * 10) + " kPa   "; } },
 		{0x14f, false, "Misc max val",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
 		{0x300, false, "DTC Codes",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return DTCCode((v & 0xFFFF0000) >> 16) + " " + DTCCode(v & 0xFFFF); } },
-		{0x902, true,  "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return std::string(o.multiFrameData.cbegin(), o.multiFrameData.cend()); } }
+		{0x902, true,  "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()); } },
+		{0x904, true,  "CALIB ID",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()); } }
 	};
 };
 

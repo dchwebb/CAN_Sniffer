@@ -149,6 +149,7 @@ void CANHandler::ProcessOBD(){
 			QueueSize = 0;
 			CANEvents.clear();
 			OBDCmd = 0xCC000102;
+			SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);
 			PIDCounter = 0;
 			ServiceCounter = 1;
 			PIDQueryErrors = 0;
@@ -188,8 +189,11 @@ void CANHandler::ProcessOBD(){
 				}
 			} else {
 				PIDQueryErrors++;
+
 				if (PIDQueryErrors > 100)
-					OBDInfoState = OBDState::List;
+					OBDInfoState = OBDState::List;			// Timeout
+				else
+					SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);		// resend command
 			}
 		}
 		break;
@@ -244,23 +248,23 @@ void CANHandler::ProcessOBD(){
 						OBDCmd = 0xCC010030;
 						SendCAN(0x7E0, OBDCmd, 0xCCCCCCCC);
 
-
 						// Check how many additional frames to expect - there will be 6 in the first packet and up to 7 in remaining packets
-						uint8_t frameCount = std::ceil((float)event->ByteCount() - 6.0f) / 7.0f;
+						uint8_t frameCount = std::ceil(((float)event->ByteCount() - 6.0f) / 7.0f);
 
 						waitCount = 0;
 						pid.multiFrameData.clear();
 
 						// Add bytes from first frame to multiFrameData vector
-						pid.multiFrameData.push_back((event->dataHigh >> 0) & 0xFF);		// FIXME - for VIN this is '01' - not part of VIN string so maybe part of header?
-						pid.multiFrameData.push_back((event->dataHigh >> 8) & 0xFF);
-						pid.multiFrameData.push_back((event->dataHigh >> 16) & 0xFF);
-						pid.multiFrameData.push_back((event->dataHigh >> 24) & 0xFF);
-
+						pid.AddToMultiFrame(event->dataHigh, 0); 			// FIXME - testing indicates first byte is just 01 so maybe part of header
 
 #ifdef TESTMODE
-						testInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
-						testInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
+						if (pid.pid == 2) {
+							testInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
+							testInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
+						} else {
+							testInsert(0x7E8, 0x312d3121, 0x32364334);		// Calibration id p2
+							testInsert(0x7e8, 0x462d3522, 0x0000444b);		// Calibration id p3
+						}
 #endif
 
 						while (frameCount > 0 && waitCount < 100000) {
@@ -271,13 +275,8 @@ void CANHandler::ProcessOBD(){
 
 								// Check if continuation frame
 								if ((nextEvent.dataLow & 0xF0) == 0x20) {
-									pid.multiFrameData.push_back((nextEvent.dataLow >> 8) & 0xFF);
-									pid.multiFrameData.push_back((nextEvent.dataLow >> 16) & 0xFF);
-									pid.multiFrameData.push_back((nextEvent.dataLow >> 24) & 0xFF);
-									pid.multiFrameData.push_back((nextEvent.dataHigh >> 0) & 0xFF);
-									pid.multiFrameData.push_back((nextEvent.dataHigh >> 8) & 0xFF);
-									pid.multiFrameData.push_back((nextEvent.dataHigh >> 16) & 0xFF);
-									pid.multiFrameData.push_back((nextEvent.dataHigh >> 24) & 0xFF);
+									pid.AddToMultiFrame(nextEvent.dataLow, 1); 			// Skip byte 0 as this is header
+									pid.AddToMultiFrame(nextEvent.dataHigh, 0);
 									frameCount--;
 								}
 								waitCount = 0;
@@ -286,6 +285,8 @@ void CANHandler::ProcessOBD(){
 							}
 						}
 
+						pid.updateState = OBDUpdate::hasData;
+						pid.hits++;
 					}
 				}
 			}
@@ -336,7 +337,7 @@ void CANHandler::DrawPids(OBDPid& obd2Item) {
 	if (!viewRaw && obd2Item.info != PIDLookup.end()) {
 		// If the found PID is in the lookup use the friendly name and calculation lambda
 		lcd.DrawString(50, top, obd2Item.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal).substr(0, 11) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 
 	} else if (dataFound) {
 		// We have data but no lookup information - show bytes
@@ -353,27 +354,47 @@ void CANHandler::DrawPid() {
 
 	bool infoAv = (viewPid->info != PIDLookup.end());
 
-	lcd.DrawString(10, 5, "Service:" + IntToString(viewPid->service) + " PID:" + HexByte(viewPid->pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
-	lcd.DrawString(10, 30, "Diagnostic:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 30, (infoAv ? viewPid->info->name : "Unknown"), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, 5, "Service: " + IntToString(viewPid->service) + " PID: " + HexByte(viewPid->pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	lcd.DrawString(10, 30, "Diagnostic", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(130, 30, (infoAv ? viewPid->info->name : "Unknown"), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
-	lcd.DrawString(10, 55, "Current:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(10, 75, "Maximum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(10, 95, "Minimum:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 	if (infoAv) {
-		lcd.DrawString(150, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-		lcd.DrawString(150, 95, viewPid->info->calcn(*viewPid, viewPid->valMin), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
-		lcd.DrawString(150, 75, viewPid->info->calcn(*viewPid, viewPid->valMax), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(10, 55, "Current", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(130, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+
+		if (viewPid->multiFrameData.size() == 0) {
+
+			lcd.DrawString(10, 75, "Maximum", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+			lcd.DrawString(10, 95, "Minimum", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+
+			lcd.DrawString(130, 95, viewPid->info->calcn(*viewPid, viewPid->valMin), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+			lcd.DrawString(130, 75, viewPid->info->calcn(*viewPid, viewPid->valMax), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		}
 	}
 
-	lcd.DrawString(10, 120, "Raw ABCD:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 120, HexToString(viewPid->ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+	if (viewPid->multiFrameData.size() > 0) {
+		lcd.DrawString(10, 80, "Raw Data", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		uint16_t xpos = 10;
+		uint8_t ypos = 105;
+		for (auto d : viewPid->multiFrameData) {
+			lcd.DrawString(xpos, ypos, HexByte(d), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+			xpos += 25;
+			if (xpos > 290) {
+				xpos = 10;
+				ypos += 25;
+			}
+		}
 
-	// print out last update time and number of hits
-	lcd.DrawString(10, 145, "Updated:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 145, IntToString(std::round((float)(SysTickVal - viewPid->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
-	lcd.DrawString(10, 168, "Hits:", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(150, 168, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	} else {
+		lcd.DrawString(10, 120, "Raw ABCD", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(130, 120, HexToString(viewPid->ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+
+		// print out last update time and number of hits
+		lcd.DrawString(10, 145, "Updated", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(130, 145, IntToString(std::round((float)(SysTickVal - viewPid->updated) / 10)) + "ms  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	}
+	lcd.DrawString(10, 168, "Hits", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(130, 168, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
 }
 
 

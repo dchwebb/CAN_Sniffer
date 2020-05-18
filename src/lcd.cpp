@@ -284,8 +284,10 @@ void LCD::DrawCharMem(uint16_t x, uint16_t y, uint16_t memWidth, uint16_t* memBu
 
 void LCD::DrawString(uint16_t x0, uint16_t y0, std::string s, const FontData *font, const uint32_t& foreground, const uint32_t& background) {
 	for (char& c : s) {
-		DrawChar(x0, y0, c, font, foreground, background);
-		x0 += font->Width;
+		if (c > 0) {
+			DrawChar(x0, y0, c, font, foreground, background);
+			x0 += font->Width;
+		}
 	}
 }
 
