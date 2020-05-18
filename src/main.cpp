@@ -20,6 +20,7 @@ bool pageDown = false;
 extern "C"
 {
 	#include "interrupts.h"
+
 }
 
 
@@ -36,7 +37,25 @@ int main(void) {
 	lcd.Init();								// Initialize ILI9341 LCD
 	InitCAN();
 
+	CANUpdateFilters(0x700, 0x700);
 	while (1) {
+
+/*		uint8_t q = can.QueueSize;
+		can.SendCAN(0x7DF, 0xCC020902, 0xCCCCCCCC);
+		while (q == can.QueueSize) {}
+
+		q = can.QueueSize;
+		if (true) {
+			can.SendCAN(0x7E0, 0xCC000030, 0xCCCCCCCC);
+		} else if (false) {
+			can.SendCAN(0x7E8, 0x30000030, 0xCCCCCCCC);
+		} else {
+			can.SendCAN(0x7E8, 0xCC100030, 0xCCCCCCCC);
+		}
+		while (q == can.QueueSize) {}
+		for (int t = 0; t < 800000; t++) {}
+		int x = 0;*/
+
 		// If in one of the query modes send the specified query command
 		if (can.Mode == OBDMode::Query) {
 			can.SendCAN(0x7DF, can.OBDCmd, 0xCCCCCCCC);			// Generic command
@@ -61,5 +80,7 @@ int main(void) {
 		}
 
 		can.ProcessQueue();
+
 	}
+
 }

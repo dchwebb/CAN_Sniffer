@@ -125,7 +125,7 @@ public:
 	void ProcessQueue();
 	void ProcessOBD();
 	void SendCAN(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh);
-
+	void LogMsg(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh);
 private:
 	uint8_t CANPos = 0;
 	uint16_t pageNo = 0;
@@ -141,7 +141,7 @@ private:
 
 	std::vector<CANEvent> CANEvents;
 	std::vector<CANEvent>::iterator viewEvent;
-	std::vector<OBDPid> OBDAvailablePIDs;
+	std::vector<OBDPid> OBDAvPIDs;
 	std::vector<OBDPid>::iterator viewPid;
 
 	void DrawPids(OBDPid& pid);

@@ -32,3 +32,4 @@ Debug/*
 *.exe
 *.out
 *.app
+*.sch-bak

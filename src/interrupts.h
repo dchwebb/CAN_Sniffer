@@ -11,10 +11,13 @@ void CAN1_RX0_IRQHandler(void) {
 	can.Queue[can.QueueWrite].dataLow = CAN1->sFIFOMailBox[0].RDLR;
 	can.Queue[can.QueueWrite].dataHigh = CAN1->sFIFOMailBox[0].RDHR;
 
+	CAN1->RF0R |= CAN_RF0R_RFOM0;		// Mark the contents of the FIFO as read
+
+	can.LogMsg(can.Queue[can.QueueWrite].id, can.Queue[can.QueueWrite].dataLow, can.Queue[can.QueueWrite].dataHigh);
+
 	can.QueueSize++;
 	can.QueueWrite = (can.QueueWrite + 1) % CANQUEUESIZE;
 
-	CAN1->RF0R |= CAN_RF0R_RFOM0;		// Mark the contents of the FIFO as read
 }
 
 // USART Decoder

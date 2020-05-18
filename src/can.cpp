@@ -144,8 +144,8 @@ void CANHandler::ProcessOBD(){
 	switch (OBDInfoState) {
 		case OBDState::Start :
 			CANUpdateFilters(0x700, 0x700);				// FIXME - should be 0x7E0 ?
-			OBDAvailablePIDs.clear();
-			OBDAvailablePIDs.push_back({ 3, 0, GetPIDLookup(3, 0) });		// Add item for DTC errors
+			OBDAvPIDs.clear();
+			OBDAvPIDs.push_back({ 3, 0, GetPIDLookup(3, 0) });		// Add item for DTC errors
 			QueueSize = 0;
 			CANEvents.clear();
 			OBDCmd = 0xCC000102;
@@ -170,7 +170,7 @@ void CANHandler::ProcessOBD(){
 				for (uint8_t id = 0; id < 31; ++id) {
 					if (0x80000000 >> id & idMask) {
 						uint16_t pidId = id + 1 + PIDCounter;
-						OBDAvailablePIDs.push_back({ ServiceCounter, pidId, GetPIDLookup(ServiceCounter, pidId) });
+						OBDAvPIDs.push_back({ ServiceCounter, pidId, GetPIDLookup(ServiceCounter, pidId) });
 					}
 				}
 
@@ -196,7 +196,7 @@ void CANHandler::ProcessOBD(){
 		case OBDState::List: {
 			std::stringstream ss;
 			ss << "Available PIDs: ";
-			for (auto p : OBDAvailablePIDs) {
+			for (auto p : OBDAvPIDs) {
 				ss << IntToString(p.service) + HexByte(p.pid) << ", ";
 			}
 			uartSendString(ss.str() + '\n');
@@ -208,7 +208,7 @@ void CANHandler::ProcessOBD(){
 
 		case OBDState::Update: {
 			// Cycle through available PIDs generating queries, then waiting for response
-			OBDPid pid = OBDAvailablePIDs[PIDCounter];
+			OBDPid pid = OBDAvPIDs[PIDCounter];
 
 			if (OBDCmdPending) {
 				// Check if a response is available yet
@@ -223,9 +223,11 @@ void CANHandler::ProcessOBD(){
 					} else {
 						/* https://en.wikipedia.org/wiki/ISO_15765-2
 						Request next frames - | 3 = flow control 0 = Continue To Send | 00 = remaining "frames" to be sent without flow control or delay | 01= <= 127, separation time in milliseconds
+						NB - flow control packets must be sent to 0x7E0 rather than 0x7DF
 						*/
 						OBDCmd = 0xCC010030;
-						SendCAN(event->id, OBDCmd, 0xCCCCCCCC);
+						SendCAN(0x7E0, OBDCmd, 0xCCCCCCCC);
+						OBDCmdPending = false;
 					}
 				} else {
 					PIDQueryErrors++;
@@ -233,21 +235,25 @@ void CANHandler::ProcessOBD(){
 						OBDCmdPending = false;
 					}
 				}
+
+				// PID processed so increment counter
+				if (!OBDCmdPending) {
+					PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
+				}
 			}
 
 			if (!OBDCmdPending) {
+
 				// Don't bother updating immutable data fields
-				while (pid.updateState == OBDUpdate::hasData && pid.info != PIDLookup.end() && pid.info->noUpdate) {
-					PIDCounter = (1 + PIDCounter) % OBDAvailablePIDs.size();
-					pid = OBDAvailablePIDs[PIDCounter];
+				while (OBDAvPIDs[PIDCounter].updateState == OBDUpdate::hasData && OBDAvPIDs[PIDCounter].info != PIDLookup.end() && OBDAvPIDs[PIDCounter].info->noUpdate) {
+					PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
 				}
+				pid = OBDAvPIDs[PIDCounter];
 
 				OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
 				SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);
 				OBDCmdPending = true;
 				PIDQueryErrors = 0;
-
-				PIDCounter = (1 + PIDCounter) % OBDAvailablePIDs.size();
 
 #ifdef TESTMODE
 			// Randomise some data
@@ -274,12 +280,12 @@ void CANHandler::ProcessOBD(){
 		DrawPid();
 		DrawUI();
 	} else {
-		if (CANPos >= CANPAGEITEMS || (uint16_t)(CANPos + (pageNo * CANPAGEITEMS)) >= (uint16_t)OBDAvailablePIDs.size()) {
+		if (CANPos >= CANPAGEITEMS || (uint16_t)(CANPos + (pageNo * CANPAGEITEMS)) >= (uint16_t)OBDAvPIDs.size()) {
 			CANPos = 0;
 			DrawUI();
 		} else {
 			uint16_t i = CANPos + (pageNo * CANPAGEITEMS);
-			DrawPids(OBDAvailablePIDs[i]);
+			DrawPids(OBDAvPIDs[i]);
 			CANPos++;
 		}
 	}
@@ -382,7 +388,7 @@ void CANHandler::DrawEvent() {
 }
 
 
-uint32_t StringToOBD(const std::string s) {
+uint32_t StringToOBD(const std::string& s) {
 	uint32_t id;
 	std::stringstream ss;
 	ss << std::hex << s;
@@ -415,11 +421,15 @@ void CANHandler::OBDQueryMode(const std::string& s){
 void CANHandler::SendCAN(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh) {
 #ifndef TESTMODE
 	CANCmd(canID, dataLow, dataHigh);
+	uartSendString("sent: 0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
 #else
 	uartSendString("0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
 #endif
 }
 
+void CANHandler::LogMsg(const uint16_t& canID, const uint32_t& dataLow, const uint32_t& dataHigh) {
+	uartSendString("rec: 0x" + CANIdToHex(canID) + ", 0x" + HexToString(dataLow) + ", 0x" + HexToString(dataHigh) + '\n');
+}
 
 bool CANHandler::ProcessCmd() {
 	// Checks if a valid command has been sent via UART and processes accordingly
@@ -428,7 +438,7 @@ bool CANHandler::ProcessCmd() {
 		return false;
 
 	bool cmdValid = true;
-	uint16_t itemCount = Mode == OBDMode::Info ? OBDAvailablePIDs.size() : CANEvents.size();
+	uint16_t itemCount = Mode == OBDMode::Info ? OBDAvPIDs.size() : CANEvents.size();
 	uint16_t pageCount = std::ceil((float)itemCount / CANPAGEITEMS);
 
 	if (pendingCmd == "f") {										// Freeze Display
@@ -479,8 +489,8 @@ bool CANHandler::ProcessCmd() {
 			uint16_t id = StringToOBD(pendingCmd);
 
 			if (Mode == OBDMode::Info) {
-				auto pid = std::find_if(OBDAvailablePIDs.begin(), OBDAvailablePIDs.end(), [&] (OBDPid p)	{ return (p.service << 8) + p.pid == id; } );
-				if (pid != OBDAvailablePIDs.end()) {
+				auto pid = std::find_if(OBDAvPIDs.begin(), OBDAvPIDs.end(), [&] (OBDPid p)	{ return (p.service << 8) + p.pid == id; } );
+				if (pid != OBDAvPIDs.end()) {
 					viewIDMode = true;
 					viewPid = pid;
 				} else {
@@ -515,7 +525,7 @@ void CANHandler::DrawUI() {
 	// Draw standard UI elements
 
 	bool cmdValid = ProcessCmd();
-	uint16_t itemCount = Mode == OBDMode::Info ? OBDAvailablePIDs.size() : CANEvents.size();
+	uint16_t itemCount = Mode == OBDMode::Info ? OBDAvPIDs.size() : CANEvents.size();
 	uint16_t pageCount = std::ceil((float)itemCount / CANPAGEITEMS);
 
 	if (cmdValid and !freeze)
@@ -568,6 +578,8 @@ void CANHandler::InjectTestData() {
 		testInsert(0x7E8, 0x004F4106, 0x00230000);
 		testInsert(0x7E8, 0xC4024306, 0x0001C015);		// DTC
 		testInsert(0x7E8, 0x02491410, 0x30465701);		// o0902 VIN
+		testInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
+		testInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
 		testInsert(0x7E8, 0x04491310, 0x39474201);		// o0904 Calibration ID
 		testInsert(0x7E8, 0x01064907, 0xCD8EFFF3);		// o0906 Calibration Verification Numbers (CVN)
 
