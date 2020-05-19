@@ -286,7 +286,7 @@ void CANHandler::ProcessOBD(){
 						}
 
 						pid.updateState = OBDUpdate::hasData;
-						pid.hits++;
+						pid.hits++;			// FIXME - stuck at 0
 					}
 				}
 			}
