@@ -589,12 +589,10 @@ Wire Wire Line
 Wire Wire Line
 	5050 2000 5050 2250
 Wire Wire Line
-	4850 1700 5050 1700
-Wire Wire Line
 	4850 1600 5050 1600
 Text GLabel 4850 1600 0    50   Input ~ 0
 CAN1_TX
-Text GLabel 4850 1700 0    50   Input ~ 0
+Text GLabel 4700 2050 0    50   Input ~ 0
 CAN1_RX
 Wire Wire Line
 	5550 2300 5550 2250
@@ -1588,4 +1586,50 @@ Wire Wire Line
 	8650 5100 9100 5100
 Wire Wire Line
 	8200 5450 9100 5450
+$Comp
+L Device:R_Small R?
+U 1 1 5F1244F4
+P 4800 1900
+F 0 "R?" H 4741 1854 50  0000 R CNN
+F 1 "1k" H 4741 1945 50  0000 R CNN
+F 2 "Resistors_SMD:R_0805_HandSoldering" H 4800 1900 50  0001 C CNN
+F 3 "~" H 4800 1900 50  0001 C CNN
+	1    4800 1900
+	-1   0    0    1   
+$EndComp
+$Comp
+L Device:R_Small R?
+U 1 1 5F1244FA
+P 4800 2200
+F 0 "R?" H 4741 2154 50  0000 R CNN
+F 1 "2k" H 4741 2245 50  0000 R CNN
+F 2 "Resistors_SMD:R_0805_HandSoldering" H 4800 2200 50  0001 C CNN
+F 3 "~" H 4800 2200 50  0001 C CNN
+	1    4800 2200
+	-1   0    0    1   
+$EndComp
+Wire Wire Line
+	4800 2300 4800 2350
+Wire Wire Line
+	4800 2000 4800 2050
+Wire Wire Line
+	5050 1700 4800 1700
+Wire Wire Line
+	4800 1700 4800 1800
+Wire Wire Line
+	4700 2050 4800 2050
+Connection ~ 4800 2050
+Wire Wire Line
+	4800 2050 4800 2100
+$Comp
+L power:GND #PWR?
+U 1 1 5F13E333
+P 4800 2350
+F 0 "#PWR?" H 4800 2100 50  0001 C CNN
+F 1 "GND" H 4805 2177 50  0000 C CNN
+F 2 "" H 4800 2350 50  0001 C CNN
+F 3 "" H 4800 2350 50  0001 C CNN
+	1    4800 2350
+	1    0    0    -1  
+$EndComp
 $EndSCHEMATC

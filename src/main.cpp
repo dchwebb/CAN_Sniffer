@@ -9,13 +9,10 @@ volatile uint32_t SysTickVal = 0;
 LCD lcd;
 CANHandler can;
 
-uint32_t canDataLow = 0, canDataHigh = 0;
-uint16_t canID = 0;
-uint32_t dummyData = 0;
 volatile uint8_t uartCmdPos = 0;
 volatile char uartCmd[50];
 volatile bool uartCmdRdy = false;
-bool pageDown = false;
+//bool pageDown = false;
 
 extern "C"
 {
