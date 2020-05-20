@@ -213,7 +213,6 @@ void CANHandler::ProcessOBD(){
 
 		case OBDState::Update: {
 			// Cycle through available PIDs generating queries, then waiting for response
-
 			OBDPid& pid = OBDAvPIDs[PIDCounter];
 
 			OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);
@@ -241,10 +240,8 @@ void CANHandler::ProcessOBD(){
 					if (event->SingleFrame()) {
 						pid.UpdateValues(CANEvents);
 					} else {
-						/* https://en.wikipedia.org/wiki/ISO_15765-2
-						Request next frames - | 3 = flow control 0 = Continue To Send | 00 = remaining "frames" to be sent without flow control or delay | 01= <= 127, separation time in milliseconds
-						NB - flow control packets must be sent to 0x7E0 rather than 0x7DF
-						*/
+						// https://en.wikipedia.org/wiki/ISO_15765-2			NB - flow control packets must be sent to 0x7E0 rather than 0x7DF
+						// Request next frames - | 3 = flow control 0 = Continue To Send | 00 = remaining "frames" to be sent without flow control or delay | 01= <= 127, separation time in milliseconds
 						OBDCmd = 0xCC010030;
 						SendCAN(0x7E0, OBDCmd, 0xCCCCCCCC);
 
@@ -266,7 +263,7 @@ void CANHandler::ProcessOBD(){
 							testInsert(0x7e8, 0x462d3522, 0x0000444b);		// Calibration id p3
 						}
 #endif
-
+						// wait for remaining frames and add information to multiFrameData vector
 						while (frameCount > 0 && waitCount < 100000) {
 							if (QueueSize > 0) {
 								rawCANEvent nextEvent = Queue[QueueRead];
@@ -275,7 +272,7 @@ void CANHandler::ProcessOBD(){
 
 								// Check if continuation frame
 								if ((nextEvent.dataLow & 0xF0) == 0x20) {
-									pid.AddToMultiFrame(nextEvent.dataLow, 1); 			// Skip byte 0 as this is header
+									pid.AddToMultiFrame(nextEvent.dataLow, 1); 			// Skip byte 0 as this is continuation info header
 									pid.AddToMultiFrame(nextEvent.dataHigh, 0);
 									frameCount--;
 								}
@@ -284,16 +281,14 @@ void CANHandler::ProcessOBD(){
 								waitCount++;
 							}
 						}
-
-						pid.updateState = OBDUpdate::hasData;
-						pid.hits++;			// FIXME - stuck at 0
+						pid.hits++;
 					}
 				}
 			}
 
 			// PID processed so increment counter, skipping immutable items that have already been updated
 			PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
-			while (OBDAvPIDs[PIDCounter].updateState == OBDUpdate::hasData && OBDAvPIDs[PIDCounter].info != PIDLookup.end() && OBDAvPIDs[PIDCounter].info->noUpdate) {
+			while (OBDAvPIDs[PIDCounter].hits > 0 && OBDAvPIDs[PIDCounter].info != PIDLookup.end() && OBDAvPIDs[PIDCounter].info->noUpdate) {
 				PIDCounter = (1 + PIDCounter) % OBDAvPIDs.size();
 			}
 		}
@@ -323,25 +318,25 @@ std::vector<PIDItem>::const_iterator CANHandler::GetPIDLookup(const uint8_t& ser
 }
 
 
-void CANHandler::DrawPids(OBDPid& obd2Item) {
+void CANHandler::DrawPids(OBDPid& obdItem) {
 	// Draw list of SAE OBD2 standard diagnostics (also updates the available PIDs vector with current, min, max and raw values)
 	if (freeze) return;
 
 	uint8_t top = (CANDRAWHEIGHT * CANPos) + 5;
 
 	// Find latest event data and update values in Available PIDs vector
-	bool dataFound = obd2Item.UpdateValues(CANEvents);
-	lcd.DrawString(10, top, CANIdToHex((obd2Item.service << 8) + obd2Item.pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
+	//bool dataFound = obdItem.UpdateValues(CANEvents);
+	lcd.DrawString(10, top, CANIdToHex((obdItem.service << 8) + obdItem.pid), &lcd.Font_Large, LCD_LIGHTBLUE, LCD_BLACK);
 
 	// Check if we have lookup info for the OBD2 item
-	if (!viewRaw && obd2Item.info != PIDLookup.end()) {
+	if (!viewRaw && obdItem.info != PIDLookup.end()) {
 		// If the found PID is in the lookup use the friendly name and calculation lambda
-		lcd.DrawString(50, top, obd2Item.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-		lcd.DrawString(190, top, (dataFound ? obd2Item.info->calcn(obd2Item, obd2Item.calcVal).substr(0, 11) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
+		lcd.DrawString(50, top, obdItem.info->name, &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(190, top, (obdItem.hits > 0 ? obdItem.info->calcn(obdItem, obdItem.calcVal).substr(0, 11) : ""), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 
-	} else if (dataFound) {
+	} else if (obdItem.hits > 0) {
 		// We have data but no lookup information - show bytes
-		lcd.DrawString(50, top, HexToString(obd2Item.ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
+		lcd.DrawString(50, top, HexToString(obdItem.ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 	}
 }
 
@@ -362,8 +357,7 @@ void CANHandler::DrawPid() {
 		lcd.DrawString(10, 55, "Current", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 		lcd.DrawString(130, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 
-		if (viewPid->multiFrameData.size() == 0) {
-
+		if (viewPid->multiFrameData.size() == 0 && !viewPid->info->noUpdate) {
 			lcd.DrawString(10, 75, "Maximum", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 			lcd.DrawString(10, 95, "Minimum", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 

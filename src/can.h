@@ -59,8 +59,6 @@ struct PIDItem {
 
 const std::vector<PIDItem> PIDLookup;		// forward declaration
 
-enum class OBDUpdate { noData, hasData, PartialData };
-
 // Holds list of available OBD PIDs
 struct OBDPid {
 	uint8_t service;
@@ -74,7 +72,6 @@ struct OBDPid {
 	uint32_t dataHigh;
 	uint32_t updated;
 	uint32_t hits;
-	OBDUpdate updateState = OBDUpdate::noData;
 	std::vector<uint8_t> multiFrameData;
 
 	uint32_t ABCD() const { return (dataLow & 0xFF000000) + ((dataHigh & 0xFF) << 16) + (dataHigh & 0xFF00) + ((dataHigh & 0xFF0000) >> 16); }
@@ -101,8 +98,6 @@ struct OBDPid {
 			// capture minimum and maximum values
 			if (calcVal > valMax)	valMax = calcVal;
 			if (calcVal < valMin)	valMin = calcVal;
-
-			updateState = OBDUpdate::hasData;
 		}
 		return true;
 	}
@@ -173,6 +168,7 @@ private:
 	std::string HexByte(const uint16_t& v);
 
 	const std::vector<PIDItem> PIDLookup {
+		{0x101, false, "Errors/DTC",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
 		{0x104, false, "Engine load",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55, false) + "%  "; } },
 		{0x105, false, "Coolant temp",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },
 		{0x10B, false, "Manifold Prs",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " kPa  "; } },
@@ -182,7 +178,7 @@ private:
 		{0x110, false, "Air flow",		PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 100.0, false) + " g/s   "; } },
 		{0x111, false, "Throttle pos",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55, false) + "%  "; } },
 		{0x112, false, "Sec air stat",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
-		{0x11C, true,  "OBD standard",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
+		{0x11C, true,  "OBD standard",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v); } },
 		{0x11F, false, "Run time",		PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " s"; } },
 		{0x121, false, "Dist w Error",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " km"; } },
 		{0x123, false, "Fuel Rail Pr",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v * 10) + " kPa   "; } },
