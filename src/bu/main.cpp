@@ -2,21 +2,27 @@
 #include "lcd.h"
 #include "can.h"
 
+
 extern uint32_t SystemCoreClock;
 volatile uint32_t SysTickVal = 0;
 
 LCD lcd;
 CANHandler can;
 
+uint32_t canDataLow = 0, canDataHigh = 0;
+uint16_t canID = 0;
+uint32_t dummyData = 0;
 volatile uint8_t uartCmdPos = 0;
 volatile char uartCmd[50];
 volatile bool uartCmdRdy = false;
-
+bool pageDown = false;
 
 extern "C"
 {
 	#include "interrupts.h"
+
 }
+
 
 
 int main(void) {
@@ -31,30 +37,23 @@ int main(void) {
 	lcd.Init();								// Initialize ILI9341 LCD
 	InitCAN();
 
-
-//	CANUpdateFilters(0x700, 0x700);							// FIXME - should be 0x7E0 ?
-//	uint32_t start = SysTickVal;
-//	uint8_t q = can.QueueSize;
-//	can.SendCAN(0x7DF, 0xCC020902, 0xCCCCCCCC);
-//	while (q == can.QueueSize) {}
-//
-//	q = can.QueueSize;
-//	if (false) {
-//		can.SendCAN(0x7E0, 0xCC000030, 0xCCCCCCCC);
-//	} else {
-//		can.SendCAN(0x7E0, 0xCC100030, 0xCCCCCCCC);
-//	}
-//	uint32_t waitCount = 0;
-//	while (waitCount < 0xFFFFFFFF && q == can.QueueSize) {
-//		waitCount++;
-//	}
-//	uint32_t end = SysTickVal;
-//	uint32_t time = end - start;
-//
-//	int x = 0;
-
 	while (1) {
 
+/*		uint8_t q = can.QueueSize;
+		can.SendCAN(0x7DF, 0xCC020902, 0xCCCCCCCC);
+		while (q == can.QueueSize) {}
+
+		q = can.QueueSize;
+		if (true) {
+			can.SendCAN(0x7E0, 0xCC000030, 0xCCCCCCCC);
+		} else if (false) {
+			can.SendCAN(0x7E8, 0x30000030, 0xCCCCCCCC);
+		} else {
+			can.SendCAN(0x7E8, 0xCC100030, 0xCCCCCCCC);
+		}
+		while (q == can.QueueSize) {}
+		for (int t = 0; t < 800000; t++) {}
+		int x = 0;*/
 
 		// Check if a UART command has been received
 		if (uartCmdRdy) {

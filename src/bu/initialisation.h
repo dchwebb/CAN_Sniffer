@@ -25,7 +25,7 @@
 //	Define encoder pins and timers for easier reconfiguring
 #ifdef STM32F446xx
 #define L_ENC_CNT	TIM4->CNT
-#elseif STM32F429xx
+#elif STM32F429xx
 #define L_ENC_CNT	TIM1->CNT
 #else
 #define L_ENC_CNT	TIM8->CNT
@@ -47,7 +47,7 @@
 
 #ifdef STM32F446xx
 #define R_BTN_NO(a, b) a ## 13 ## b
-#elseif STM32F429xx
+#elif STM32F429xx
 #define R_BTN_NO(a, b) a ## 7 ## b
 #else
 #define R_BTN_NO(a, b) a ## 2 ## b
