@@ -12,8 +12,8 @@ struct CANEvent {
 	uint16_t id;
 	uint32_t dataLow;
 	uint32_t dataHigh;
-	uint32_t updated;
-	uint32_t hits;
+	uint32_t updated = 0;
+	uint32_t hits = 0;
 
 	/* Example response data:
 	0x7E8, 0x001F4104, 0x00000067	Single frame packet
@@ -55,24 +55,19 @@ struct PIDItem {
 	std::function<std::string(const OBDPid& o, const uint32_t& v)> calcn;
 };
 
-const std::vector<PIDItem> PIDLookup;		// forward declaration
-
 // Holds list of available OBD PIDs
-struct OBDPid {
+struct OBDPid : CANEvent {
 	uint8_t service;
 	uint16_t pid;
 	std::vector<PIDItem>::const_iterator info;
-	uint32_t calcVal;
+	uint32_t calcVal = 0;
 	uint32_t valMax = 0x00000000;
 	uint32_t valMin = 0xFFFFFFFF;
-	uint32_t rawData;
-	uint32_t dataLow;
-	uint32_t dataHigh;
-	uint32_t updated;
-	uint32_t hits;
+	uint32_t rawData = 0;
 	std::vector<uint8_t> multiFrameData;
 
-	uint32_t ABCD() const { return (dataLow & 0xFF000000) + ((dataHigh & 0xFF) << 16) + (dataHigh & 0xFF00) + ((dataHigh & 0xFF0000) >> 16); }
+	OBDPid(const uint8_t& service, const uint16_t& pid, const std::vector<PIDItem>::const_iterator& info)
+		: service{service}, pid{pid}, info{info} {}
 
 	void AddToMultiFrame(const uint32_t& d, uint8_t start) {
 		for (; start < 4; ++start) {
@@ -142,6 +137,7 @@ private:
 	std::string HexToString(const uint32_t& v, const bool& spaces = false);
 	std::string HexByte(const uint16_t& v);
 	std::string BinToString(const uint8_t& b);
+	std::string MultiFrameToString(const std::vector<uint8_t>& mf, const uint8_t& start);
 	uint32_t HexStringToOBD(const std::string& s);
 
 	const std::vector<PIDItem> PIDLookup {
@@ -174,9 +170,15 @@ private:
 		{0x14F, false, "Misc max val",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
 		{0x167, false, "Eng cool tmp",	PIDCalc::B,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },		// FIXME - this is a guess
 		{0x169, false, "EGR Error",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return "Encoded"; } },
+		{0x177, false, "CAC temp",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return "Encoded"; } },
+		{0x178, false, "E Gas temp 1",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 0 ? "Supported: " + BinToString(o.multiFrameData[0] & 0xF) : ""; } },	// FIXME subsequent bytes are temperatures
 		{0x300, false, "DTC codes",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return DTCCode((v & 0xFFFF0000) >> 16) + " " + DTCCode(v & 0xFFFF); } },
-		{0x902, false, "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 2 ? std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()) : ""; } },
-		{0x904, false, "Calib ID",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 2 ? std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()) : ""; } }
+		{0x902, false, "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return MultiFrameToString(o.multiFrameData, 1); } },
+		{0x904, false, "Calib ID",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return MultiFrameToString(o.multiFrameData, 1); } },
+		{0x906, false, "Calib Ver N",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
+		{0x90A, false, "ECU name",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return MultiFrameToString(o.multiFrameData, 1); } },
+		{0x90B, false, "Perf track",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } }
 	};
 };
+
 

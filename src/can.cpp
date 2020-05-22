@@ -152,11 +152,6 @@ void CANHandler::ProcessOBD(){
 				waitCount++;
 			}
 
-			if (pid.service == 1 && pid.pid == 0x69) {
-				uint16_t pservice = CANEvents[33].Service();
-				uint16_t ppid = CANEvents[33].PID();
-				int susp = 1;
-			}
 #ifdef TESTMODE
 			waitCount = 0;
 #endif
@@ -190,17 +185,15 @@ void CANHandler::ProcessOBD(){
 						https://en.wikipedia.org/wiki/ISO_15765-2			NB - flow control packets must be sent to 0x7E0 rather than 0x7DF
 						Request next frames - | 3 = flow control 0 = Continue To Send | 00 = remaining "frames" to be sent without flow control or delay | 01= <= 127, separation time in milliseconds
 						*/
+						pid.calcVal = pid.ABCD();
 						OBDCmd = 0xCC010030;
 						SendCAN(0x7E0, OBDCmd, 0xCCCCCCCC);
 
 						// Check how many additional frames to expect - there will be 6 in the first packet and up to 7 in remaining packets
 						uint8_t frameCount = std::ceil(((float)event->ByteCount() - 6.0f) / 7.0f);
-
-						waitCount = 0;
 						pid.multiFrameData.clear();
-
-						// Add bytes from first frame to multiFrameData vector
-						pid.AddToMultiFrame(event->dataHigh, 0); 			// FIXME - testing indicates first byte is just 01 so maybe part of header
+						pid.AddToMultiFrame(event->dataHigh, 0);		// Add bytes from first frame to multiFrameData vector
+						waitCount = 0;
 
 #ifdef TESTMODE
 						TestMultiFrame(pid);		// Inject multi-frame test data
@@ -305,7 +298,7 @@ void CANHandler::DrawPid() {
 		lcd.DrawString(10, 55, "Current", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 		lcd.DrawString(130, 55, viewPid->info->calcn(*viewPid, viewPid->calcVal), &lcd.Font_Large, LCD_YELLOW, LCD_BLACK);
 
-		if (viewPid->multiFrameData.size() == 0 && !viewPid->info->noUpdate) {
+		if (viewPid->info->calc != PIDCalc::ABCD && viewPid->multiFrameData.size() == 0 && !viewPid->info->noUpdate) {
 			lcd.DrawString(10, 75, "Maximum", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 			lcd.DrawString(10, 95, "Minimum", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
 
@@ -332,11 +325,11 @@ void CANHandler::DrawPid() {
 		lcd.DrawString(130, 120, HexToString(viewPid->ABCD(), true), &lcd.Font_Large, LCD_ORANGE, LCD_BLACK);
 
 		// print out last update time and number of hits
-		lcd.DrawString(10, 145, "Updated", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-		lcd.DrawString(130, 145, FloatToString((float)(SysTickVal - viewPid->updated) / 100, true) + "s  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+		lcd.DrawString(10, 150, "Updated", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+		lcd.DrawString(130, 150, FloatToString((float)(SysTickVal - viewPid->updated) / 100, true) + "s  ", &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
 	}
-	lcd.DrawString(10, 168, "Updates", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
-	lcd.DrawString(130, 168, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
+	lcd.DrawString(10, 173, "Updates", &lcd.Font_Large, LCD_WHITE, LCD_BLACK);
+	lcd.DrawString(130, 173, IntToString(viewPid->hits), &lcd.Font_Large, LCD_MAGENTA, LCD_BLACK);
 }
 
 
@@ -767,4 +760,13 @@ std::string CANHandler::BinToString(const uint8_t& b) {
 	std::stringstream ss;
 	ss << ((b & 1) ? "1" : "") << ((b & 2) ? "2" : "") << ((b & 4) ? "3" : "") << ((b & 8) ? "4" : "");
 	return ss.str();
+}
+
+
+std::string CANHandler::MultiFrameToString(const std::vector<uint8_t>& mf, const uint8_t& start) {
+	if (mf.size() >= start) {
+		return std::string(mf.cbegin() + start, mf.cend());
+	} else {
+		return "";
+	}
 }
