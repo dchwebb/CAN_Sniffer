@@ -14,9 +14,10 @@ void CANHandler::ProcessQueue() {
 
 			auto event = CANEvents.begin();
 			if (Mode == OBDMode::Info) {
-				// Check if first three bytes match
+				// Check if service matches - this can be in byte two or three depending on whether single or multi=frame data
 				event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce)
-						{ return ce.id == nextEvent.id && (ce.dataLow & 0xFFFFFF) == (nextEvent.dataLow & 0xFFFFFF); } );
+						{ return ce.id == nextEvent.id && (nextEvent.dataLow && 0xF0 == 0x10 ? (ce.dataLow & 0xFFFF0000) == (nextEvent.dataLow & 0xFFFF0000) : (ce.dataLow & 0xFFFF00) == (nextEvent.dataLow & 0xFFFF00)); } );
+
 			} else {
 				event = std::find_if(CANEvents.begin(), CANEvents.end(), [&] (CANEvent ce) { return ce.id == nextEvent.id; } );
 			}
@@ -74,9 +75,9 @@ void CANHandler::ProcessOBD(){
 			ServiceCounter = 1;
 			PIDQueryErrors = 0;
 			OBDInfoState = OBDState::PIDQuery;
+
 #ifdef TESTMODE
-			// FIXME - dummy code to simulate actual PIDs
-			InjectTestData();
+			InjectTestData();		// FIXME - dummy code to simulate actual PIDs
 #endif
 			break;
 
@@ -136,28 +137,26 @@ void CANHandler::ProcessOBD(){
 			OBDPid& pid = OBDAvPIDs[PIDCounter];
 
 			if (pid.service == 3) {
-				int test = 0;
-				test++;
-				//TestInsert(0x7E8, 0x02491410, 0x30465701);
+				OBDCmd = 0xCC000001 + (pid.pid << 16) + (pid.service << 8);		// 01 = number of data bytes
+			} else {
+				OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);		// 02 = number of data bytes
 			}
-
-			OBDCmd = 0xCC000002 + (pid.pid << 16) + (pid.service << 8);		// 02 = number of data bytes
 			uint8_t queueSize = QueueSize;
 			SendCAN(0x7DF, OBDCmd, 0xCCCCCCCC);
 			PIDQueryErrors = 0;
-			RandTestData(pid); 		// Randomise some data for display update testing
+			//RandTestData(pid); 		// Randomise some data for display update testing
 
 			// Wait until a response is available or time-outs
 			uint32_t waitCount = 0;
-			uint32_t start = SysTickVal;
 			while (waitCount < CANTIMEOUT && queueSize == QueueSize) {
 				waitCount++;
 			}
-			uint32_t end = SysTickVal;
-			uint32_t time = end - start;
 
-
-
+			if (pid.service == 1 && pid.pid == 0x69) {
+				uint16_t pservice = CANEvents[33].Service();
+				uint16_t ppid = CANEvents[33].PID();
+				int susp = 1;
+			}
 #ifdef TESTMODE
 			waitCount = 0;
 #endif
@@ -179,6 +178,7 @@ void CANHandler::ProcessOBD(){
 						if (pid.info != PIDLookup.end()) {
 							if		(pid.info->calc == PIDCalc::A)		pid.calcVal = event->A();
 							else if (pid.info->calc == PIDCalc::AB)		pid.calcVal = event->AB();
+							else if (pid.info->calc == PIDCalc::B)		pid.calcVal = event->B();
 							else 										pid.calcVal = pid.ABCD();
 
 							// capture minimum and maximum values
@@ -203,13 +203,7 @@ void CANHandler::ProcessOBD(){
 						pid.AddToMultiFrame(event->dataHigh, 0); 			// FIXME - testing indicates first byte is just 01 so maybe part of header
 
 #ifdef TESTMODE
-						if (pid.pid == 2) {
-							//TestInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
-							//TestInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
-						} else {
-							TestInsert(0x7E8, 0x312d3121, 0x32364334);		// Calibration id p2
-							TestInsert(0x7e8, 0x462d3522, 0x0000444b);		// Calibration id p3
-						}
+						TestMultiFrame(pid);		// Inject multi-frame test data
 #endif
 						// wait for remaining frames and add information to multiFrameData vector
 						while (frameCount > 0 && waitCount < CANTIMEOUT) {
@@ -238,7 +232,7 @@ void CANHandler::ProcessOBD(){
 			}
 
 			if (waitCount == CANTIMEOUT) {
-				uartSendString("Query Timeout:" + HexToString(OBDCmd, true) + '\n');
+				//uartSendString("Query Timeout:" + HexToString(OBDCmd, true) + '\n');
 			} else {
 				pid.hits++;
 			}
@@ -638,32 +632,118 @@ void CANHandler::TestInsert(const uint16_t& id, const uint32_t& dataLow, const u
 }
 
 void CANHandler::InjectTestData() {
-		TestInsert(0x7E8, 0x98004106, 0x0013C03B);
-		TestInsert(0x7E8, 0xA0204106, 0x00010000);
-		TestInsert(0x7E8, 0x00404106, 0x00000002);
-		TestInsert(0x7E8, 0x54004906, 0x00000000);
-		TestInsert(0x7E8, 0x02014106, 0x0000E80E);
-		TestInsert(0x7E8, 0x6D044103, 0x00000000);
-		TestInsert(0x7E8, 0x41054103, 0x00000000);
-		TestInsert(0x7E8, 0x480B4103, 0x00000000);
-		TestInsert(0x7E8, 0x0C0C4104, 0x000000BE);
-		TestInsert(0x7E8, 0x000D4103, 0x00000000);
-		TestInsert(0x7E8, 0x370F4103, 0x00000000);
-		TestInsert(0x7E8, 0x03104104, 0x00000080);
-		TestInsert(0x7E8, 0x00114103, 0x00000000);
-		TestInsert(0x7E8, 0x04124103, 0x00000000);
-		TestInsert(0x7E8, 0x061C4103, 0x00000000);
-		TestInsert(0x7E8, 0x001F4104, 0x00000031);
-		TestInsert(0x7E8, 0x00214104, 0x00000000);
-		TestInsert(0x7E8, 0x0B234104, 0x0000009A);
-		TestInsert(0x7E8, 0x004F4106, 0x00230000);
-		TestInsert(0x7E8, 0xC4024306, 0x0001C015);		// DTC
-//		TestInsert(0x7E8, 0x02491410, 0x30465701);		// o0902 VIN
-		//TestInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
-		//TestInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
-		TestInsert(0x7E8, 0x04491310, 0x39474201);		// o0904 Calibration ID
-		TestInsert(0x7E8, 0x01064907, 0xCD8EFFF3);		// o0906 Calibration Verification Numbers (CVN)
 
+#ifdef FORD_MONDEO
+	TestInsert(0x7E8, 0x98004106, 0x0013C03B);
+	TestInsert(0x7E8, 0xA0204106, 0x00010000);
+	TestInsert(0x7E8, 0x00404106, 0x00000002);
+	TestInsert(0x7E8, 0x54004906, 0x00000000);
+	TestInsert(0x7E8, 0x02014106, 0x0000E80E);
+	TestInsert(0x7E8, 0x6D044103, 0x00000000);
+	TestInsert(0x7E8, 0x41054103, 0x00000000);
+	TestInsert(0x7E8, 0x480B4103, 0x00000000);
+	TestInsert(0x7E8, 0x0C0C4104, 0x000000BE);
+	TestInsert(0x7E8, 0x000D4103, 0x00000000);
+	TestInsert(0x7E8, 0x370F4103, 0x00000000);
+	TestInsert(0x7E8, 0x03104104, 0x00000080);
+	TestInsert(0x7E8, 0x00114103, 0x00000000);
+	TestInsert(0x7E8, 0x04124103, 0x00000000);
+	TestInsert(0x7E8, 0x061C4103, 0x00000000);
+	TestInsert(0x7E8, 0x001F4104, 0x00000031);
+	TestInsert(0x7E8, 0x00214104, 0x00000000);
+	TestInsert(0x7E8, 0x0B234104, 0x0000009A);
+	TestInsert(0x7E8, 0x004F4106, 0x00230000);
+	TestInsert(0x7E8, 0xC4024306, 0x0001C015);		// DTC
+	TestInsert(0x7E8, 0x02491410, 0x30465701);		// o0902 VIN
+	//TestInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
+	//TestInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
+	TestInsert(0x7E8, 0x04491310, 0x39474201);		// o0904 Calibration ID
+	TestInsert(0x7E8, 0x01064907, 0xCD8EFFF3);		// o0906 Calibration Verification Numbers (CVN)
+#endif
+#ifdef AUDI_A3
+	TestInsert(0x7E8, 0x98004106, 0x0013A03B);
+	TestInsert(0x7E8, 0xA0204106, 0x0001B001);
+	TestInsert(0x7E8, 0xCC404106, 0x000100D2);
+	TestInsert(0x7E8, 0x02604106, 0x00000380);
+	TestInsert(0x7E8, 0x54004906, 0x00000060);
+	TestInsert(0x7E8, 0x00004302, 0x00000000);
+	TestInsert(0x7E8, 0x00014106, 0x0000E80E);
+	TestInsert(0x7E8, 0x00044103, 0x00000000);
+	TestInsert(0x7E8, 0x83054103, 0x00000000);
+	TestInsert(0x7E8, 0x350B4103, 0x00000000);
+	TestInsert(0x7E8, 0x030C4104, 0x000000DA);
+	TestInsert(0x7E8, 0x000D4103, 0x00000000);
+	TestInsert(0x7E8, 0x5C0F4103, 0x00000000);
+	TestInsert(0x7E8, 0x00104104, 0x00000037);
+	TestInsert(0x7E8, 0x22114103, 0x00000000);
+	TestInsert(0x7E8, 0x03134103, 0x00000000);
+	TestInsert(0x7E8, 0x061C4103, 0x00000000);
+	TestInsert(0x7E8, 0x001F4104, 0x00000065);
+	TestInsert(0x7E8, 0x00214104, 0x00000000);
+	TestInsert(0x7E8, 0x0C234104, 0x00000040);
+	TestInsert(0x7E8, 0xFF304103, 0x00000000);
+	TestInsert(0x7E8, 0xFF314104, 0x000000FF);
+	TestInsert(0x7E8, 0x63334103, 0x00000000);
+	TestInsert(0x7E8, 0x29344106, 0x00FF7F02);
+	TestInsert(0x7E8, 0x00414106, 0x00E8E80E);
+	TestInsert(0x7E8, 0x32424104, 0x000000DC);
+	TestInsert(0x7E8, 0x00454103, 0x00000000);
+	TestInsert(0x7E8, 0x41464103, 0x00000000);
+	TestInsert(0x7E8, 0x24494103, 0x00000000);
+	TestInsert(0x7E8, 0x254A4103, 0x00000000);
+	TestInsert(0x7E8, 0x004C4103, 0x00000000);
+	TestInsert(0x7E8, 0x204F4106, 0x00000000);
+	TestInsert(0x7E8, 0x01674105, 0x00000083);
+	TestInsert(0x7E8, 0x69410910, 0x80000038);
+	TestInsert(0x7E8, 0x03774107, 0x0000707D);
+	TestInsert(0x7E8, 0x78410B10, 0x06D0080D);
+	TestInsert(0x7E8, 0x02491410, 0x55415701);
+	TestInsert(0x7E8, 0x04491310, 0x4C343001);
+	TestInsert(0x7E8, 0x01064907, 0x6CC2992D);
+	TestInsert(0x7E8, 0x0A491710, 0x4D434501);
+	TestInsert(0x7E8, 0x0B492310, 0x22AE0710);
+#endif
+}
+
+void CANHandler::TestMultiFrame(const OBDPid& pid) {
+#ifdef FORD_MONDEO
+	if (pid.pid == 2) {
+		TestInsert(0x7e8, 0x58584521, 0x45424247);		// VIN packet 2
+		TestInsert(0x7e8, 0x34454322, 0x33303431);		// VIN Packet 3
+	} else {
+		TestInsert(0x7E8, 0x312d3121, 0x32364334);		// Calibration id p2
+		TestInsert(0x7e8, 0x462d3522, 0x0000444b);		// Calibration id p3
+	}
+#endif
+#ifdef AUDI_A3
+	switch ((uint16_t)(pid.service << 8) + pid.pid) {
+	case (0x169):
+		TestInsert(0x7E8, 0x80333321, 0x00000000);
+		break;
+	case (0x178):
+		TestInsert(0x7E8, 0xB709E421, 0x00001509);
+	break;
+	case (0x902):
+		TestInsert(0x7E8, 0x5A5A5A21, 0x45345638);
+		TestInsert(0x7E8, 0x37314122, 0x36353631);
+		break;
+	case (0x904):
+		TestInsert(0x7E8, 0x31323021, 0x35364C41);
+		TestInsert(0x7E8, 0x42363422, 0x00444244);
+		break;
+	case (0x90A):
+		TestInsert(0x7E8, 0x452D0021, 0x6E69676E);
+		TestInsert(0x7E8, 0x6F436522, 0x6F72746E);
+		TestInsert(0x7E8, 0x00006C23, 0x00000000);
+	case (0x90B):
+		TestInsert(0x7E8, 0x00003221, 0x00000000);
+		TestInsert(0x7E8, 0x00000022, 0x08000000);
+		TestInsert(0x7E8, 0x8B00A123, 0xAE075C0A);
+		TestInsert(0x7E8, 0x076A1E24, 0x000000AE);
+		TestInsert(0x7E8, 0x00000025, 0x00000000);
+		break;
+	}
+#endif
 }
 
 void CANHandler::RandTestData(const OBDPid& pid) {
@@ -683,3 +763,8 @@ void CANHandler::RandTestData(const OBDPid& pid) {
 }
 
 
+std::string CANHandler::BinToString(const uint8_t& b) {
+	std::stringstream ss;
+	ss << ((b & 1) ? "1" : "") << ((b & 2) ? "2" : "") << ((b & 4) ? "3" : "") << ((b & 8) ? "4" : "");
+	return ss.str();
+}

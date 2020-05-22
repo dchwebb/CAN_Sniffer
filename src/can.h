@@ -3,8 +3,8 @@
 #include "initialisation.h"
 #include <lcd.h>
 
-#define CANQUEUESIZE 30
-#define CANTIMEOUT 1000000
+#define CANQUEUESIZE 50
+#define CANTIMEOUT 100000
 extern LCD lcd;
 
 
@@ -43,7 +43,7 @@ struct rawCANEvent {
 	uint32_t dataHigh;
 };
 
-enum class PIDCalc { A, AB, ABCD };
+enum class PIDCalc { A, AB, B, ABCD };
 struct OBDPid;			// forward declaration
 
 // Holds const lookup of PID names, codes and calculation types
@@ -130,6 +130,7 @@ private:
 	void OBDQueryMode(const std::string& s);
 	std::vector<PIDItem>::const_iterator GetPIDLookup(const uint8_t& service, const uint16_t& id);
 	void InjectTestData();
+	void TestMultiFrame(const OBDPid& pid);
 	void TestInsert(const uint16_t& id, const uint32_t& dataLow, const uint32_t& dataHigh);
 	void RandTestData(const OBDPid& pid);
 
@@ -140,6 +141,7 @@ private:
 	std::string IntToString(const int32_t& v);
 	std::string HexToString(const uint32_t& v, const bool& spaces = false);
 	std::string HexByte(const uint16_t& v);
+	std::string BinToString(const uint8_t& b);
 	uint32_t HexStringToOBD(const std::string& s);
 
 	const std::vector<PIDItem> PIDLookup {
@@ -150,17 +152,31 @@ private:
 		{0x10C, false, "RPM",			PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v / 4.0) + " rpm   "; } },
 		{0x10D, false, "Speed",			PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " km/h   "; } },
 		{0x10F, false, "In air temp",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },
-		{0x110, false, "Air flow",		PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 100.0, false) + " g/s   "; } },
-		{0x111, false, "Throttle pos",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55, false) + "%  "; } },
+		{0x110, false, "Air flow",		PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 100.0) + " g/s   "; } },
+		{0x111, false, "Throttle pos",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55) + "%  "; } },
 		{0x112, false, "Sec air stat",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
+		{0x113, false, "Oxygen sens",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return "B1:" + BinToString(v & 0xF) + " B2:" + BinToString((v & 0xF0) >> 8); } },
 		{0x11C, true,  "OBD standard",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v); } },
 		{0x11F, false, "Run time",		PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " s"; } },
 		{0x121, false, "Dist w error",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " km"; } },
 		{0x123, false, "Fuel rail pr",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v * 10) + " kPa   "; } },
-		{0x14f, false, "Misc max val",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
+		{0x130, false, "Warm ups",		PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v); } },
+		{0x131, false, "Dist s w ups",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return IntToString(v); } },
+		{0x133, false, "Bar Pressure",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v) + " kPa  "; } },
+		{0x134, false, "Ox Sensor 1",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },		// FIXME Two part encoding
+		{0x141, false, "Monitor stat",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },		// FIXME Bit Encoded
+		{0x142, false, "Ctl module V",	PIDCalc::AB,	[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 1000.0); } },
+		{0x145, false, "Rel throttle",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55) + "%  "; } },
+		{0x146, false, "Amb air temp",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },
+		{0x149, false, "Accelr pos D",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55) + "%  "; } },
+		{0x14A, false, "Accelr pos E",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55) + "%  "; } },
+		{0x14C, false, "C throttle a",	PIDCalc::A,		[&](const OBDPid& o, const uint32_t& v){ return FloatToString((float)v / 2.55) + "%  "; } },
+		{0x14F, false, "Misc max val",	PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return HexToString(v, true); } },
+		{0x167, false, "Eng cool tmp",	PIDCalc::B,		[&](const OBDPid& o, const uint32_t& v){ return IntToString(v - 40) + " C  "; } },		// FIXME - this is a guess
+		{0x169, false, "EGR Error",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return "Encoded"; } },
 		{0x300, false, "DTC codes",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return DTCCode((v & 0xFFFF0000) >> 16) + " " + DTCCode(v & 0xFFFF); } },
-		{0x902, true,  "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 2 ? std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()) : ""; } },
-		{0x904, true,  "Calib ID",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 2 ? std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()) : ""; } }
+		{0x902, false, "VIN",			PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 2 ? std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()) : ""; } },
+		{0x904, false, "Calib ID",		PIDCalc::ABCD,	[&](const OBDPid& o, const uint32_t& v){ return o.multiFrameData.size() > 2 ? std::string(o.multiFrameData.cbegin() + 1, o.multiFrameData.cend()) : ""; } }
 	};
 };
 
