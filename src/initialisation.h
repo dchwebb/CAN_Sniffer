@@ -11,7 +11,7 @@
 #include <cstdlib>
 #include <functional>
 
-#define TESTMODE
+//#define TESTMODE
 #define AUDI_A3
 
 // Coverage profiler macros using timer 4 to count clock cycles / 10
